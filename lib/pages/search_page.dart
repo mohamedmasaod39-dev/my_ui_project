@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'index_page.dart';
 
 class SearchPage extends StatefulWidget {
@@ -104,28 +105,42 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black, size: 20),
+          icon: Icon(
+            Icons.arrow_back_ios,
+            color: textColor,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Container(
           height: 45,
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: AppThemeColors.surface(context),
             borderRadius: BorderRadius.circular(12),
           ),
           child: TextField(
             controller: _searchController,
+            style: GoogleFonts.inter(color: textColor),
             decoration: InputDecoration(
               contentPadding: const EdgeInsets.symmetric(vertical: 10),
               hintText: "Search Listables...",
-              hintStyle: GoogleFonts.inter(color: Colors.grey, fontSize: 14),
-              prefixIcon: const Icon(Icons.search, color: Colors.grey, size: 20),
+              hintStyle: GoogleFonts.inter(
+                color: AppThemeColors.textSecondary(context),
+                fontSize: 14,
+              ),
+              prefixIcon: Icon(
+                Icons.search,
+                color: AppThemeColors.textSecondary(context),
+                size: 20,
+              ),
               border: InputBorder.none,
             ),
           ),
@@ -151,6 +166,7 @@ class _SearchPageState extends State<SearchPage> {
               style: GoogleFonts.poppins(
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
+                color: textColor,
               ),
             ),
           ),
@@ -208,6 +224,7 @@ class _SearchPageState extends State<SearchPage> {
 
   Widget _buildFilterChip(int index) {
     final bool isSelected = selectedCategory == index;
+    final textColor = AppThemeColors.textPrimary(context);
 
     return GestureDetector(
       onTap: () {
@@ -216,21 +233,23 @@ class _SearchPageState extends State<SearchPage> {
         });
         _applyFilters();
       },
-      child: Container(
-        margin: const EdgeInsets.only(right: 10),
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        decoration: BoxDecoration(
-          color: isSelected ? primaryRed : Colors.white,
+        child: Container(
+          margin: const EdgeInsets.only(right: 10),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          decoration: BoxDecoration(
+          color: isSelected
+              ? primaryRed
+              : AppThemeColors.elevatedSurface(context),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isSelected ? primaryRed : Colors.grey.shade300,
+            color: isSelected ? primaryRed : AppThemeColors.border(context),
           ),
         ),
         child: Center(
           child: Text(
             categories[index],
             style: GoogleFonts.inter(
-              color: isSelected ? Colors.white : Colors.black,
+              color: isSelected ? Colors.white : textColor,
               fontWeight: FontWeight.w600,
               fontSize: 13,
             ),
@@ -241,11 +260,13 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   Widget _buildSearchCard(Product product) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/details', arguments: product),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
+        child: Container(
+          decoration: BoxDecoration(
+          color: AppThemeColors.surface(context),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
@@ -281,7 +302,10 @@ class _SearchPageState extends State<SearchPage> {
                 children: [
                   Text(
                     product.title,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: textColor,
+                    ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),

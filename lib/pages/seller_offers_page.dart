@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SellerOfferModel {
@@ -122,20 +123,22 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Received Offers',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -171,7 +174,10 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
                 children: [
                   Text(
                     'No received offers yet',
-                    style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
@@ -196,12 +202,13 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
       itemBuilder: (context, index) {
         final offer = _offers[index];
         final isPending = offer.status == 'pending';
+        final textColor = AppThemeColors.textPrimary(context);
 
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -212,7 +219,7 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
                     width: 72,
                     height: 72,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppThemeColors.elevatedSurface(context),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: offer.productImage != null && offer.productImage!.isNotEmpty
@@ -232,6 +239,7 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
+                            color: textColor,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -245,7 +253,9 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
                         const SizedBox(height: 6),
                         Text(
                           'Status: ${offer.status.toUpperCase()}',
-                          style: GoogleFonts.inter(color: Colors.black54),
+                          style: GoogleFonts.inter(
+                            color: AppThemeColors.textSecondary(context),
+                          ),
                         ),
                       ],
                     ),

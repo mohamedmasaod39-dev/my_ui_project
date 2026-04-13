@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/app_mode_service.dart';
@@ -239,22 +240,27 @@ class _ProfilePageState extends State<ProfilePage> {
     IconData icon,
     String? routeName,
   ) {
+    final theme = Theme.of(context);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: theme.cardColor,
         borderRadius: BorderRadius.circular(15),
       ),
       child: ListTile(
-        leading: Icon(icon, color: Colors.black),
+        leading: Icon(icon, color: theme.colorScheme.onSurface),
         title: Text(
           title,
-          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+          style: GoogleFonts.inter(
+            fontWeight: FontWeight.w500,
+            color: theme.colorScheme.onSurface,
+          ),
         ),
-        trailing: const Icon(
+        trailing: Icon(
           Icons.arrow_forward_ios,
           size: 16,
-          color: Colors.grey,
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
         ),
         onTap: () {
           if (routeName != null) {
@@ -269,24 +275,25 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final modeService = AppModeService.instance;
     final isSellerMode = modeService.isSeller;
+    final textColor = AppThemeColors.textPrimary(context);
     final displayedName =
         _nameController.text.isEmpty ? 'User' : _nameController.text;
     final displayedEmail =
         _emailController.text.isEmpty ? 'No email' : _emailController.text;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           "My Profile",
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -316,7 +323,9 @@ class _ProfilePageState extends State<ProfilePage> {
                           right: 0,
                           child: CircleAvatar(
                             radius: 18,
-                            backgroundColor: Colors.black,
+                            backgroundColor: AppThemeColors.isDark(context)
+                                ? const Color(0xFF1B1D24)
+                                : Colors.black,
                             child: IconButton(
                               icon: const Icon(
                                 Icons.edit,
@@ -336,11 +345,14 @@ class _ProfilePageState extends State<ProfilePage> {
                     style: GoogleFonts.poppins(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
+                      color: textColor,
                     ),
                   ),
                   Text(
                     displayedEmail,
-                    style: GoogleFonts.inter(color: Colors.grey),
+                    style: GoogleFonts.inter(
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 40),
 
@@ -348,22 +360,25 @@ class _ProfilePageState extends State<ProfilePage> {
                     Container(
                       margin: const EdgeInsets.only(bottom: 15),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5F5),
+                        color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: ListTile(
-                        leading: const Icon(
+                        leading: Icon(
                           Icons.arrow_circle_right_outlined,
-                          color: Colors.black,
+                          color: textColor,
                         ),
                         title: Text(
                           'Open Seller Mode',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w500,
+                            color: textColor,
+                          ),
                         ),
-                        trailing: const Icon(
+                        trailing: Icon(
                           Icons.arrow_forward_ios,
                           size: 16,
-                          color: Colors.grey,
+                          color: AppThemeColors.textSecondary(context),
                         ),
                         onTap: () {
                           modeService.setMode(AppMode.seller);
@@ -382,17 +397,20 @@ class _ProfilePageState extends State<ProfilePage> {
                     Container(
                       margin: const EdgeInsets.only(bottom: 15),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFF5F5F5),
+                        color: Theme.of(context).cardColor,
                         borderRadius: BorderRadius.circular(15),
                       ),
                       child: ListTile(
-                        leading: const Icon(
+                        leading: Icon(
                           Icons.shopping_bag_outlined,
-                          color: Colors.black,
+                          color: textColor,
                         ),
                         title: Text(
                           'Switch To Buyer',
-                          style: GoogleFonts.inter(fontWeight: FontWeight.w500),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.w500,
+                            color: textColor,
+                          ),
                         ),
                         trailing: const Icon(
                           Icons.arrow_forward_ios,
@@ -422,12 +440,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     "My Orders",
                     Icons.shopping_bag_outlined,
                     '/orders',
-                  ),
-                  _buildProfileMenu(
-                    context,
-                    "Messages",
-                    Icons.chat_bubble_outline,
-                    '/conversations',
                   ),
                   _buildProfileMenu(
                     context,
@@ -473,7 +485,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     context,
                     "App Settings",
                     Icons.settings_outlined,
-                    null,
+                    '/app_settings',
                   ),
 
                   const SizedBox(height: 20),

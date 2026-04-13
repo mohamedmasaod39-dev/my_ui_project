@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 class NotificationModel {
   final String id;
@@ -127,20 +128,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Notifications',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -176,7 +179,10 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 children: [
                   Text(
                     'No notifications yet',
-                    style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
@@ -200,6 +206,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
       itemCount: _notifications.length,
       itemBuilder: (context, index) {
         final notification = _notifications[index];
+        final textColor = AppThemeColors.textPrimary(context);
         return GestureDetector(
           onTap: () => _markAsRead(notification),
           child: Container(
@@ -207,7 +214,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
             padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: notification.isRead
-                  ? const Color(0xFFF5F5F5)
+                  ? AppThemeColors.surface(context)
                   : primaryRed.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
@@ -221,11 +228,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
               children: [
                 CircleAvatar(
                   backgroundColor: notification.isRead
-                      ? Colors.white
+                      ? AppThemeColors.elevatedSurface(context)
                       : primaryRed,
                   child: Icon(
                     Icons.notifications_none,
-                    color: notification.isRead ? Colors.black : Colors.white,
+                    color: notification.isRead ? textColor : Colors.white,
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -238,6 +245,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         style: GoogleFonts.poppins(
                           fontWeight: FontWeight.bold,
                           fontSize: 15,
+                          color: textColor,
                         ),
                       ),
                       const SizedBox(height: 4),
@@ -245,7 +253,9 @@ class _NotificationsPageState extends State<NotificationsPage> {
                         notification.body.isEmpty
                             ? 'No additional details'
                             : notification.body,
-                        style: GoogleFonts.inter(color: Colors.black54),
+                        style: GoogleFonts.inter(
+                          color: AppThemeColors.textSecondary(context),
+                        ),
                       ),
                       const SizedBox(height: 8),
                       Text(
@@ -255,7 +265,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
                             .split('.')
                             .first,
                         style: GoogleFonts.inter(
-                          color: Colors.grey,
+                          color: AppThemeColors.textMuted(context),
                           fontSize: 12,
                         ),
                       ),

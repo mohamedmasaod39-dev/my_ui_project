@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 class SignupPage extends StatefulWidget {
   const SignupPage({super.key});
@@ -109,7 +110,7 @@ class _SignupPageState extends State<SignupPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -197,7 +198,12 @@ class _SignupPageState extends State<SignupPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Text("Already have an account? "),
+                      Text(
+                        "Already have an account? ",
+                        style: GoogleFonts.inter(
+                          color: AppThemeColors.textSecondary(context),
+                        ),
+                      ),
                       GestureDetector(
                         onTap: () => Navigator.pop(context),
                         child: const Text(
@@ -226,18 +232,24 @@ class _SignupPageState extends State<SignupPage> {
     bool isPass = false,
     TextInputType keyboardType = TextInputType.text,
   }) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return TextField(
       controller: controller,
       keyboardType: keyboardType,
       obscureText: isPass ? _obscurePassword : false,
+      style: GoogleFonts.inter(color: textColor),
       decoration: InputDecoration(
         hintText: hint,
-        prefixIcon: Icon(icon, color: Colors.grey),
+        hintStyle: GoogleFonts.inter(
+          color: AppThemeColors.textSecondary(context),
+        ),
+        prefixIcon: Icon(icon, color: AppThemeColors.textSecondary(context)),
         suffixIcon: isPass
             ? IconButton(
                 icon: Icon(
                   _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.grey,
+                  color: AppThemeColors.textSecondary(context),
                 ),
                 onPressed: () {
                   setState(() {
@@ -247,7 +259,7 @@ class _SignupPageState extends State<SignupPage> {
               )
             : null,
         filled: true,
-        fillColor: const Color(0xFFF5F5F5),
+        fillColor: AppThemeColors.surface(context),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
           borderSide: BorderSide.none,

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 import '../services/app_mode_service.dart';
 
@@ -18,17 +19,19 @@ class RoleSelectionPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
         title: Text(
           'Choose Your Mode',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -43,7 +46,7 @@ class RoleSelectionPage extends StatelessWidget {
               'How would you like to use Listables today?',
               style: GoogleFonts.inter(
                 fontSize: 17,
-                color: Colors.black87,
+                color: textColor.withValues(alpha: 0.9),
               ),
               textAlign: TextAlign.center,
             ),
@@ -58,7 +61,7 @@ class RoleSelectionPage extends StatelessWidget {
             const SizedBox(height: 18),
             _RoleCard(
               title: 'Sell Products',
-              subtitle: 'Add products, manage listings, review offers, and chat.',
+              subtitle: 'Add products, manage listings, and review offers.',
               icon: Icons.storefront_outlined,
               accentColor: Colors.black,
               onTap: () => _selectMode(context, AppMode.seller),
@@ -87,8 +90,10 @@ class _RoleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Material(
-      color: const Color(0xFFF5F5F5),
+      color: Theme.of(context).cardColor,
       borderRadius: BorderRadius.circular(28),
       child: InkWell(
         borderRadius: BorderRadius.circular(28),
@@ -109,6 +114,7 @@ class _RoleCard extends StatelessWidget {
                 style: GoogleFonts.poppins(
                   fontSize: 24,
                   fontWeight: FontWeight.bold,
+                  color: textColor,
                 ),
               ),
               const SizedBox(height: 10),
@@ -116,7 +122,7 @@ class _RoleCard extends StatelessWidget {
                 subtitle,
                 style: GoogleFonts.inter(
                   fontSize: 15,
-                  color: Colors.black54,
+                  color: AppThemeColors.textSecondary(context),
                   height: 1.5,
                 ),
               ),

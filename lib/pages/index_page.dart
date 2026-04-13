@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:my_ui_project/utils/app_icon_mapper.dart';
+import 'package:my_ui_project/main.dart';
 
 class Product {
   final int id;
@@ -58,9 +60,8 @@ class IndexPage extends StatefulWidget {
   State<IndexPage> createState() => _IndexPageState();
 }
 
-class _IndexPageState extends State<IndexPage> {
+class _IndexPageState extends State<IndexPage> with RouteAware {
   static const Color primaryRed = Color(0xFFDB4444);
-  static const Color offWhite = Color(0xFFF5F5F5);
 
   final supabase = Supabase.instance.client;
 
@@ -81,9 +82,25 @@ class _IndexPageState extends State<IndexPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    routeObserver.unsubscribe(this);
+    final route = ModalRoute.of(context);
+    if (route is PageRoute) {
+      routeObserver.subscribe(this, route);
+    }
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
     wishlistService.favoriteIds.removeListener(_onWishlistChanged);
     super.dispose();
+  }
+
+  @override
+  void didPopNext() {
+    _loadProducts();
   }
 
   Future<void> _loadProducts() async {
@@ -91,7 +108,7 @@ class _IndexPageState extends State<IndexPage> {
       final response = await supabase
           .from('products')
           .select()
-          .eq('status', 'active')
+          .or('status.eq.active,status.eq.sold')
           .order('created_at', ascending: false);
 
       final loadedProducts = (response as List)
@@ -171,35 +188,37 @@ class _IndexPageState extends State<IndexPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: false,
         title: Text(
           'Listables',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
             fontSize: 26,
           ),
         ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.search, color: Colors.black),
+            icon: Icon(Icons.search, color: textColor),
             onPressed: () => Navigator.pushNamed(context, '/search'),
           ),
           IconButton(
-            icon: const Icon(Icons.notifications_none, color: Colors.black),
+            icon: Icon(Icons.notifications_none, color: textColor),
             onPressed: () => Navigator.pushNamed(context, '/notifications'),
           ),
           IconButton(
-            icon: const Icon(Icons.favorite_border, color: Colors.black),
+            icon: Icon(Icons.favorite_border, color: textColor),
             onPressed: () => Navigator.pushNamed(context, '/wishlist'),
           ),
           IconButton(
-            icon: const Icon(Icons.shopping_cart_outlined, color: Colors.black),
+            icon: Icon(Icons.shopping_cart_outlined, color: textColor),
             onPressed: () => Navigator.pushNamed(context, '/cart'),
           ),
           const SizedBox(width: 10),
@@ -225,15 +244,17 @@ class _IndexPageState extends State<IndexPage> {
   }
 
   Widget _buildBottomNav() {
+    final isDark = AppThemeColors.isDark(context);
+
     return Container(
       margin: const EdgeInsets.fromLTRB(20, 0, 20, 25),
       padding: const EdgeInsets.symmetric(vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: isDark ? const Color(0xFF1B1D24) : Colors.black,
         borderRadius: BorderRadius.circular(30),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.3),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.3),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -273,11 +294,13 @@ class _IndexPageState extends State<IndexPage> {
   }
 
   Widget _buildHeroBanner() {
+    final isDark = AppThemeColors.isDark(context);
+
     return Container(
       height: 180,
       margin: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: Colors.black,
+        color: isDark ? const Color(0xFF1B1D24) : Colors.black,
         borderRadius: BorderRadius.circular(25),
       ),
       child: Row(
@@ -328,6 +351,8 @@ class _IndexPageState extends State<IndexPage> {
   }
 
   Widget _buildSectionHeader(String tag, String title) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
       child: Column(
@@ -351,6 +376,7 @@ class _IndexPageState extends State<IndexPage> {
             style: GoogleFonts.poppins(
               fontSize: 22,
               fontWeight: FontWeight.bold,
+              color: textColor,
             ),
           ),
         ],
@@ -384,6 +410,8 @@ class _IndexPageState extends State<IndexPage> {
   }
 
   Widget _catItem(IconData icon, String label) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Padding(
       padding: const EdgeInsets.only(right: 20),
       child: GestureDetector(
@@ -397,13 +425,20 @@ class _IndexPageState extends State<IndexPage> {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: offWhite,
+                color: AppThemeColors.surface(context),
                 borderRadius: BorderRadius.circular(15),
               ),
-              child: Icon(icon, color: Colors.black),
+              child: Icon(icon, color: textColor),
             ),
             const SizedBox(height: 5),
-            Text(label, style: const TextStyle(fontSize: 12)),
+            Text(
+              label,
+              style: GoogleFonts.poppins(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: textColor.withValues(alpha: 0.9),
+              ),
+            ),
           ],
         ),
       ),
@@ -445,10 +480,12 @@ class _IndexPageState extends State<IndexPage> {
 
   Widget _buildModernProductCard(Product product) {
     final isFavorite = wishlistService.isFavorite(product.id);
+    final isOutOfStock = product.status.toLowerCase() == 'sold';
+    final textColor = AppThemeColors.textPrimary(context);
 
     return Container(
       decoration: BoxDecoration(
-        color: offWhite,
+        color: AppThemeColors.surface(context),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Column(
@@ -489,16 +526,39 @@ class _IndexPageState extends State<IndexPage> {
                   child: GestureDetector(
                     onTap: () => _toggleFavorite(product),
                     child: CircleAvatar(
-                      backgroundColor: Colors.white,
+                      backgroundColor: AppThemeColors.elevatedSurface(context),
                       radius: 15,
                       child: Icon(
                         isFavorite ? Icons.favorite : Icons.favorite_border,
                         size: 18,
-                        color: isFavorite ? primaryRed : Colors.black,
+                        color: isFavorite ? primaryRed : textColor,
                       ),
                     ),
                   ),
                 ),
+                if (isOutOfStock)
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black87,
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                      child: Text(
+                        'Out of stock',
+                        style: GoogleFonts.inter(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
@@ -518,6 +578,7 @@ class _IndexPageState extends State<IndexPage> {
                     style: GoogleFonts.inter(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
+                      color: textColor,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -526,7 +587,7 @@ class _IndexPageState extends State<IndexPage> {
                   Text(
                     _formatPrice(product.price),
                     style: GoogleFonts.poppins(
-                      color: primaryRed,
+                      color: isOutOfStock ? Colors.grey : primaryRed,
                       fontWeight: FontWeight.bold,
                       fontSize: 15,
                     ),

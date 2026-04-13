@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'index_page.dart';
@@ -163,6 +164,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   @override
   Widget build(BuildContext context) {
     final isEdit = _editingProduct != null;
+    final textColor = AppThemeColors.textPrimary(context);
 
     if (_selectedCategoryId == null &&
         _categories.isNotEmpty &&
@@ -171,19 +173,19 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
     }
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           isEdit ? 'Edit Product' : 'Add Product',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -297,10 +299,11 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
       controller: controller,
       maxLines: maxLines,
       keyboardType: keyboardType,
+      style: GoogleFonts.inter(color: AppThemeColors.textPrimary(context)),
       decoration: InputDecoration(
         labelText: label,
         filled: true,
-        fillColor: const Color(0xFFF5F5F5),
+        fillColor: AppThemeColors.surface(context),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(16),
           borderSide: BorderSide.none,
@@ -313,7 +316,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
     return InputDecoration(
       labelText: label,
       filled: true,
-      fillColor: const Color(0xFFF5F5F5),
+      fillColor: AppThemeColors.surface(context),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
         borderSide: BorderSide.none,

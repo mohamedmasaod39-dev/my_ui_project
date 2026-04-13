@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/app_mode_service.dart';
@@ -73,17 +74,20 @@ class _SellerHomePageState extends State<SellerHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+    final isDark = AppThemeColors.isDark(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
         title: Text(
           'Seller Dashboard',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -114,7 +118,7 @@ class _SellerHomePageState extends State<SellerHomePage> {
                   Container(
                     padding: const EdgeInsets.all(24),
                     decoration: BoxDecoration(
-                      color: Colors.black,
+                      color: isDark ? const Color(0xFF1B1D24) : Colors.black,
                       borderRadius: BorderRadius.circular(30),
                     ),
                     child: Column(
@@ -191,12 +195,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
                     onTap: () => _openPage('/seller_offers'),
                   ),
                   _ActionTile(
-                    title: 'Messages',
-                    subtitle: 'Open your product conversations with buyers.',
-                    icon: Icons.chat_bubble_outline,
-                    onTap: () => _openPage('/conversations'),
-                  ),
-                  _ActionTile(
                     title: 'Profile',
                     subtitle: 'Update your profile information and account settings.',
                     icon: Icons.person_outline,
@@ -222,10 +220,12 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
-        color: highlight ? const Color(0xFFDB4444) : const Color(0xFFF5F5F5),
+        color: highlight ? const Color(0xFFDB4444) : Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -235,14 +235,16 @@ class _StatCard extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: highlight ? Colors.white : Colors.black,
+              color: highlight ? Colors.white : textColor,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             label,
             style: GoogleFonts.inter(
-              color: highlight ? Colors.white70 : Colors.black54,
+              color: highlight
+                  ? Colors.white70
+                  : AppThemeColors.textSecondary(context),
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -267,31 +269,43 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(24),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         leading: CircleAvatar(
           radius: 24,
-          backgroundColor: Colors.white,
+          backgroundColor: AppThemeColors.elevatedSurface(context),
           child: Icon(icon, color: const Color(0xFFDB4444)),
         ),
         title: Text(
           title,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            color: textColor,
+          ),
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
             subtitle,
-            style: GoogleFonts.inter(color: Colors.black54, height: 1.4),
+            style: GoogleFonts.inter(
+              color: AppThemeColors.textSecondary(context),
+              height: 1.4,
+            ),
           ),
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: AppThemeColors.textMuted(context),
+        ),
         onTap: onTap,
       ),
     );

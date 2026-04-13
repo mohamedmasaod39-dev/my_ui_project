@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 import '../services/app_mode_service.dart';
 
@@ -28,6 +29,26 @@ class _LoginPageState extends State<LoginPage> {
     super.dispose();
   }
 
+  Future<void> _navigateForUser(User user) async {
+    final profile = await _supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+    final role = (profile?['role'] ?? 'buyer').toString();
+    if (!mounted) return;
+
+    if (role == 'admin') {
+      Navigator.pushReplacementNamed(context, '/admin');
+    } else if (role == 'seller') {
+      AppModeService.instance.setMode(AppMode.seller);
+      Navigator.pushReplacementNamed(context, '/seller_home');
+    } else {
+      AppModeService.instance.setMode(AppMode.buyer);
+      Navigator.pushReplacementNamed(context, '/home');
+    }
+  }
+
   Future<void> _login() async {
     if (_isLoading) return;
 
@@ -52,26 +73,10 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (response.user != null) {
-        final profile = await _supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', response.user!.id)
-            .maybeSingle();
-        final role = (profile?['role'] ?? 'buyer').toString();
-        if (!mounted) return;
-
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Login successful.')),
         );
-        if (role == 'admin') {
-          Navigator.pushReplacementNamed(context, '/admin');
-        } else if (role == 'seller') {
-          AppModeService.instance.setMode(AppMode.seller);
-          Navigator.pushReplacementNamed(context, '/seller_home');
-        } else {
-          AppModeService.instance.setMode(AppMode.buyer);
-          Navigator.pushReplacementNamed(context, '/home');
-        }
+        await _navigateForUser(response.user!);
       }
     } on AuthException catch (error) {
       if (!mounted) return;
@@ -93,7 +98,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -230,7 +235,9 @@ class _LoginPageState extends State<LoginPage> {
                     children: [
                       Text(
                         "Don't have an account? ",
-                        style: GoogleFonts.inter(color: Colors.black54),
+                        style: GoogleFonts.inter(
+                          color: AppThemeColors.textSecondary(context),
+                        ),
                       ),
                       GestureDetector(
                         onTap: () {
@@ -263,6 +270,8 @@ class _LoginPageState extends State<LoginPage> {
     required TextEditingController controller,
     bool isPassword = false,
   }) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -271,28 +280,35 @@ class _LoginPageState extends State<LoginPage> {
           style: GoogleFonts.inter(
             fontWeight: FontWeight.w600,
             fontSize: 14,
-            color: Colors.black87,
+            color: textColor.withValues(alpha: 0.9),
           ),
         ),
         const SizedBox(height: 8),
         Container(
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: AppThemeColors.surface(context),
             borderRadius: BorderRadius.circular(12),
           ),
           child: TextField(
             controller: controller,
             obscureText: isPassword && !_isPasswordVisible,
+            style: GoogleFonts.inter(color: textColor),
             decoration: InputDecoration(
               hintText: hint,
-              prefixIcon: Icon(icon, color: Colors.grey),
+              hintStyle: GoogleFonts.inter(
+                color: AppThemeColors.textSecondary(context),
+              ),
+              prefixIcon: Icon(
+                icon,
+                color: AppThemeColors.textSecondary(context),
+              ),
               suffixIcon: isPassword
                   ? IconButton(
                       icon: Icon(
                         _isPasswordVisible
                             ? Icons.visibility
                             : Icons.visibility_off,
-                        color: Colors.grey,
+                        color: AppThemeColors.textSecondary(context),
                       ),
                       onPressed: () {
                         setState(() {

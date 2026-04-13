@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'index_page.dart';
 
 class WishlistPage extends StatefulWidget {
@@ -112,21 +113,23 @@ class _WishlistPageState extends State<WishlistPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         title: Text(
           "Wishlist",
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
       ),
@@ -198,11 +201,13 @@ class _WishlistPageState extends State<WishlistPage> {
   }
 
   Widget _buildWishlistCard(Product product) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/details', arguments: product),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFFF5F5F5),
+        child: Container(
+          decoration: BoxDecoration(
+          color: AppThemeColors.surface(context),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Stack(
@@ -237,7 +242,10 @@ class _WishlistPageState extends State<WishlistPage> {
                     children: [
                       Text(
                         product.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: textColor,
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -257,7 +265,7 @@ class _WishlistPageState extends State<WishlistPage> {
               top: 10,
               right: 10,
               child: CircleAvatar(
-                backgroundColor: Colors.white,
+                backgroundColor: AppThemeColors.elevatedSurface(context),
                 child: IconButton(
                   icon: const Icon(Icons.delete_outline, color: primaryRed),
                   onPressed: () => _removeFromWishlist(product.id),
@@ -279,7 +287,10 @@ class _WishlistPageState extends State<WishlistPage> {
           const SizedBox(height: 20),
           Text(
             "Your wishlist is empty",
-            style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+            style: GoogleFonts.poppins(
+              fontSize: 18,
+              color: AppThemeColors.textSecondary(context),
+            ),
           ),
         ],
       ),

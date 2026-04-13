@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
-import 'conversations_page.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'index_page.dart';
 
 class DetailsPage extends StatefulWidget {
@@ -208,74 +208,12 @@ class _DetailsPageState extends State<DetailsPage> {
     }
   }
 
-  Future<void> _startChat(Product product) async {
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login first')),
-      );
-      return;
-    }
-
-    if (product.sellerId == null || product.sellerId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seller not available for this product')),
-      );
-      return;
-    }
-
-    if (product.sellerId == user.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This is your own product')),
-      );
-      return;
-    }
-
-    try {
-      final existing = await supabase
-          .from('conversations')
-          .select('id, product_id, buyer_id, seller_id, created_at, products(title, main_image_url)')
-          .eq('product_id', product.id)
-          .eq('buyer_id', user.id)
-          .eq('seller_id', product.sellerId!)
-          .maybeSingle();
-
-      Map<String, dynamic> conversationMap;
-
-      if (existing != null) {
-        conversationMap = Map<String, dynamic>.from(existing);
-      } else {
-        final inserted = await supabase
-            .from('conversations')
-            .insert({
-              'product_id': product.id,
-              'buyer_id': user.id,
-              'seller_id': product.sellerId,
-            })
-            .select('id, product_id, buyer_id, seller_id, created_at, products(title, main_image_url)')
-            .single();
-
-        conversationMap = Map<String, dynamic>.from(inserted);
-      }
-
-      if (!mounted) return;
-      await Navigator.pushNamed(
-        context,
-        '/messages',
-        arguments: ConversationModel.fromMap(conversationMap),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to start chat: $e')),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final product = ModalRoute.of(context)!.settings.arguments as Product;
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
         _syncFavoriteState(product);
@@ -283,7 +221,7 @@ class _DetailsPageState extends State<DetailsPage> {
     });
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           SingleChildScrollView(
@@ -294,8 +232,8 @@ class _DetailsPageState extends State<DetailsPage> {
                 Container(
                   height: 420,
                   width: double.infinity,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFF5F5F5),
+                  decoration: BoxDecoration(
+                    color: AppThemeColors.surface(context),
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(60),
                       bottomRight: Radius.circular(60),
@@ -346,6 +284,7 @@ class _DetailsPageState extends State<DetailsPage> {
                               style: GoogleFonts.poppins(
                                 fontSize: 26,
                                 fontWeight: FontWeight.bold,
+                                color: textColor,
                               ),
                             ),
                           ),
@@ -371,7 +310,7 @@ class _DetailsPageState extends State<DetailsPage> {
                           const SizedBox(width: 8),
                           Text(
                             "(150 Reviews)",
-                            style: GoogleFonts.inter(color: Colors.grey),
+                            style: GoogleFonts.inter(color: secondaryText),
                           ),
                         ],
                       ),
@@ -396,6 +335,7 @@ class _DetailsPageState extends State<DetailsPage> {
                         style: GoogleFonts.poppins(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
+                          color: textColor,
                         ),
                       ),
                       const SizedBox(height: 10),
@@ -404,44 +344,25 @@ class _DetailsPageState extends State<DetailsPage> {
                             ? product.description
                             : "No description available.",
                         style: GoogleFonts.inter(
-                          color: Colors.black54,
+                          color: secondaryText,
                           height: 1.6,
                           fontSize: 15,
                         ),
                       ),
                       const SizedBox(height: 24),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              onPressed: () => _makeOffer(product),
-                              icon: const Icon(Icons.local_offer_outlined),
-                              label: const Text('Make Offer'),
-                              style: OutlinedButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _makeOffer(product),
+                          icon: const Icon(Icons.local_offer_outlined),
+                          label: const Text('Make Offer'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: ElevatedButton.icon(
-                              onPressed: () => _startChat(product),
-                              icon: const Icon(Icons.chat_bubble_outline),
-                              label: const Text('Start Chat'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.black,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(16),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
                       const SizedBox(height: 120),
                     ],
@@ -461,7 +382,7 @@ class _DetailsPageState extends State<DetailsPage> {
                 _circularAction(
                   _isFavorite ? Icons.favorite : Icons.favorite_border,
                   () => _toggleFavorite(product),
-                  iconColor: _isFavorite ? primaryRed : Colors.black,
+                  iconColor: _isFavorite ? primaryRed : textColor,
                 ),
               ],
             ),
@@ -474,7 +395,7 @@ class _DetailsPageState extends State<DetailsPage> {
               height: 80,
               padding: const EdgeInsets.symmetric(horizontal: 20),
               decoration: BoxDecoration(
-                color: Colors.black,
+                color: isDark ? const Color(0xFF1B1D24) : Colors.black,
                 borderRadius: BorderRadius.circular(25),
                 boxShadow: [
                   BoxShadow(
@@ -546,7 +467,7 @@ class _DetailsPageState extends State<DetailsPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.9),
+          color: AppThemeColors.elevatedSurface(context).withValues(alpha: 0.92),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: iconColor, size: 22),
@@ -558,7 +479,7 @@ class _DetailsPageState extends State<DetailsPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: AppThemeColors.surface(context),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
@@ -571,6 +492,7 @@ class _DetailsPageState extends State<DetailsPage> {
             style: GoogleFonts.inter(
               fontWeight: FontWeight.w600,
               fontSize: 13,
+              color: AppThemeColors.textPrimary(context),
             ),
           ),
         ],

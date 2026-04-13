@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'index_page.dart';
@@ -113,20 +114,22 @@ class _MyProductsPageState extends State<MyProductsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'My Products',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -170,7 +173,10 @@ class _MyProductsPageState extends State<MyProductsPage> {
                 children: [
                   Text(
                     'You have not added products yet',
-                    style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
@@ -197,11 +203,12 @@ class _MyProductsPageState extends State<MyProductsPage> {
       itemCount: _products.length,
       itemBuilder: (context, index) {
         final product = _products[index];
+        final textColor = AppThemeColors.textPrimary(context);
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(20),
           ),
           child: Column(
@@ -212,7 +219,7 @@ class _MyProductsPageState extends State<MyProductsPage> {
                     width: 90,
                     height: 90,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppThemeColors.elevatedSurface(context),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: product.image != null && product.image!.isNotEmpty
@@ -235,6 +242,7 @@ class _MyProductsPageState extends State<MyProductsPage> {
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                             fontSize: 16,
+                            color: textColor,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -250,7 +258,9 @@ class _MyProductsPageState extends State<MyProductsPage> {
                         const SizedBox(height: 4),
                         Text(
                           'Status: ${product.status.toUpperCase()}',
-                          style: GoogleFonts.inter(color: Colors.black54),
+                          style: GoogleFonts.inter(
+                            color: AppThemeColors.textSecondary(context),
+                          ),
                         ),
                       ],
                     ),

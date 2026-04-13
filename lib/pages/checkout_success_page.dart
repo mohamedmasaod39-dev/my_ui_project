@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 class CheckoutSuccessPage extends StatelessWidget {
   const CheckoutSuccessPage({super.key});
@@ -7,9 +8,10 @@ class CheckoutSuccessPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final orderId = ModalRoute.of(context)?.settings.arguments as int?;
+    final textColor = AppThemeColors.textPrimary(context);
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -18,7 +20,7 @@ class CheckoutSuccessPage extends StatelessWidget {
               Align(
                 alignment: Alignment.centerLeft,
                 child: IconButton(
-                  icon: const Icon(Icons.close, color: Colors.black),
+                  icon: Icon(Icons.close, color: textColor),
                   onPressed: () => Navigator.pushNamedAndRemoveUntil(
                     context,
                     '/home',
@@ -47,7 +49,7 @@ class CheckoutSuccessPage extends StatelessWidget {
                 style: GoogleFonts.poppins(
                   fontSize: 28,
                   fontWeight: FontWeight.bold,
-                  color: Colors.black,
+                  color: textColor,
                 ),
               ),
               const SizedBox(height: 12),
@@ -58,7 +60,7 @@ class CheckoutSuccessPage extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   fontSize: 16,
-                  color: Colors.black54,
+                  color: AppThemeColors.textSecondary(context),
                   height: 1.5,
                 ),
               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SellerOrderModel {
@@ -9,8 +10,15 @@ class SellerOrderModel {
     required this.price,
     required this.quantity,
     required this.orderStatus,
+    required this.customerName,
     required this.shippingAddress,
+    required this.city,
+    required this.state,
+    required this.zipcode,
     required this.paymentMethod,
+    required this.cardHolderName,
+    required this.cardLast4,
+    required this.cardExpiry,
     required this.productTitle,
     required this.productImage,
   });
@@ -20,8 +28,15 @@ class SellerOrderModel {
   final double price;
   final int quantity;
   final String orderStatus;
+  final String customerName;
   final String shippingAddress;
+  final String city;
+  final String state;
+  final String zipcode;
   final String paymentMethod;
+  final String cardHolderName;
+  final String cardLast4;
+  final String cardExpiry;
   final String productTitle;
   final String? productImage;
 
@@ -38,8 +53,15 @@ class SellerOrderModel {
           : double.tryParse('${rawPrice ?? 0}') ?? 0,
       quantity: map['quantity'] as int? ?? 1,
       orderStatus: (order?['status'] ?? 'pending').toString(),
+      customerName: (order?['customer_name'] ?? '').toString(),
       shippingAddress: (order?['shipping_address'] ?? '').toString(),
+      city: (order?['city'] ?? '').toString(),
+      state: (order?['state'] ?? '').toString(),
+      zipcode: (order?['zipcode'] ?? '').toString(),
       paymentMethod: (order?['payment_method'] ?? 'N/A').toString(),
+      cardHolderName: (order?['card_holder_name'] ?? '').toString(),
+      cardLast4: (order?['card_last4'] ?? '').toString(),
+      cardExpiry: (order?['card_expiry'] ?? '').toString(),
       productTitle: (product?['title'] ?? 'Product').toString(),
       productImage: product?['main_image_url']?.toString(),
     );
@@ -112,7 +134,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
 
       final response = await supabase
           .from('order_items')
-          .select('id, order_id, price, quantity, orders(status, shipping_address, payment_method), products(title, main_image_url)')
+          .select('id, order_id, price, quantity, orders(status, customer_name, shipping_address, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry), products(title, main_image_url)')
           .eq('seller_id', user.id)
           .order('id', ascending: false);
 
@@ -151,7 +173,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       case 'confirmed':
         return Colors.orange;
       default:
-        return Colors.black54;
+        return Colors.grey;
     }
   }
 
@@ -191,8 +213,15 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
             price: item.price,
             quantity: item.quantity,
             orderStatus: (updatedOrder['status'] ?? newStatus).toString(),
+            customerName: item.customerName,
             shippingAddress: item.shippingAddress,
+            city: item.city,
+            state: item.state,
+            zipcode: item.zipcode,
             paymentMethod: item.paymentMethod,
+            cardHolderName: item.cardHolderName,
+            cardLast4: item.cardLast4,
+            cardExpiry: item.cardExpiry,
             productTitle: item.productTitle,
             productImage: item.productImage,
           );
@@ -221,20 +250,22 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Seller Orders',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -270,7 +301,10 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                 children: [
                   Text(
                     'No seller orders yet',
-                    style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
@@ -295,11 +329,12 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       itemBuilder: (context, index) {
         final order = _orders[index];
         final nextStatuses = _nextStatuses(order.orderStatus);
+        final textColor = AppThemeColors.textPrimary(context);
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -311,7 +346,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                     width: 72,
                     height: 72,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppThemeColors.elevatedSurface(context),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child:
@@ -335,6 +370,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
+                            color: textColor,
                           ),
                         ),
                         const SizedBox(height: 6),
@@ -356,14 +392,44 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                         const SizedBox(height: 4),
                         Text(
                           'Payment: ${order.paymentMethod}',
-                          style: GoogleFonts.inter(color: Colors.black54),
+                          style: GoogleFonts.inter(
+                            color: AppThemeColors.textSecondary(context),
+                          ),
                         ),
+                        if (order.customerName.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Customer: ${order.customerName}',
+                            style: GoogleFonts.inter(
+                              color: AppThemeColors.textSecondary(context),
+                            ),
+                          ),
+                        ],
                         if (order.shippingAddress.trim().isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
                             order.shippingAddress,
-                            style: GoogleFonts.inter(color: Colors.black54),
+                            style: GoogleFonts.inter(
+                              color: AppThemeColors.textSecondary(context),
+                            ),
                             maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        if (order.city.trim().isNotEmpty ||
+                            order.state.trim().isNotEmpty ||
+                            order.zipcode.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            [
+                              if (order.city.trim().isNotEmpty) order.city,
+                              if (order.state.trim().isNotEmpty) order.state,
+                              if (order.zipcode.trim().isNotEmpty) order.zipcode,
+                            ].join(', '),
+                            style: GoogleFonts.inter(
+                              color: AppThemeColors.textSecondary(context),
+                            ),
+                            maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
                         ],

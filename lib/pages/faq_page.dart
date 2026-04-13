@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 class FAQPage extends StatefulWidget {
   const FAQPage({super.key});
@@ -10,12 +11,11 @@ class FAQPage extends StatefulWidget {
 
 class _FAQPageState extends State<FAQPage> {
   static const Color primaryRed = Color(0xFFDB4444);
-  static const Color offWhite = Color(0xFFF5F5F5);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: CustomScrollView(
         physics: const BouncingScrollPhysics(),
         slivers: [
@@ -175,35 +175,45 @@ class _FAQPageState extends State<FAQPage> {
   }
 
   Widget _buildQuickAction(IconData icon, String label) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Column(
       children: [
         Container(
           padding: const EdgeInsets.all(15),
           decoration: BoxDecoration(
-            color: offWhite,
+            color: AppThemeColors.surface(context),
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
+            border: Border.all(color: AppThemeColors.border(context)),
           ),
-          child: Icon(icon, color: Colors.black, size: 24),
+          child: Icon(icon, color: textColor, size: 24),
         ),
         const SizedBox(height: 8),
         Text(
           label,
-          style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.w500),
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: textColor,
+          ),
         ),
       ],
     );
   }
 
   Widget _buildModernFaqTile(String question, String answer) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Container(
       margin: const EdgeInsets.only(bottom: 15),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(20),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: Colors.black.withValues(
+              alpha: AppThemeColors.isDark(context) ? 0.12 : 0.03,
+            ),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
@@ -211,13 +221,17 @@ class _FAQPageState extends State<FAQPage> {
       ),
       child: ExpansionTile(
         iconColor: primaryRed,
-        collapsedIconColor: Colors.black54,
+        collapsedIconColor: AppThemeColors.textSecondary(context),
         shape: const RoundedRectangleBorder(side: BorderSide.none),
         collapsedShape: const RoundedRectangleBorder(side: BorderSide.none),
         leading: const Icon(Icons.help_outline, color: primaryRed),
         title: Text(
           question,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.w600, fontSize: 14),
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.w600,
+            fontSize: 14,
+            color: textColor,
+          ),
         ),
         children: [
           Padding(
@@ -225,7 +239,7 @@ class _FAQPageState extends State<FAQPage> {
             child: Text(
               answer,
               style: GoogleFonts.inter(
-                color: Colors.black54,
+                color: AppThemeColors.textSecondary(context),
                 height: 1.5,
                 fontSize: 14,
               ),
