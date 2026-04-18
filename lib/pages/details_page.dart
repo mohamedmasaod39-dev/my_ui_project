@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
@@ -17,6 +18,9 @@ class _DetailsPageState extends State<DetailsPage> {
   final supabase = Supabase.instance.client;
   final wishlistService = WishlistService.instance;
   bool _isFavorite = false;
+  bool _isSubmittingOffer = false;
+  int? _syncedFavoriteProductId;
+  Product? _product;
 
   @override
   void initState() {
@@ -28,6 +32,18 @@ class _DetailsPageState extends State<DetailsPage> {
   void dispose() {
     wishlistService.favoriteIds.removeListener(_onWishlistChanged);
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final routeProduct = ModalRoute.of(context)?.settings.arguments as Product?;
+    if (routeProduct == null) return;
+    if (_product?.id == routeProduct.id) return;
+
+    _product = routeProduct;
+    _ensureFavoriteState(routeProduct);
   }
 
   String _formatPrice(double price) {
@@ -46,6 +62,12 @@ class _DetailsPageState extends State<DetailsPage> {
     if (mounted) {
       setState(() {});
     }
+  }
+
+  void _ensureFavoriteState(Product product) {
+    if (_syncedFavoriteProductId == product.id) return;
+    _syncedFavoriteProductId = product.id;
+    _syncFavoriteState(product);
   }
 
   Future<void> _toggleFavorite(Product product) async {
@@ -75,6 +97,13 @@ class _DetailsPageState extends State<DetailsPage> {
   }
 
   Future<void> _addToCart(Product product) async {
+    if (product.status.toLowerCase() == 'sold') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This product is out of stock')),
+      );
+      return;
+    }
+
     try {
       final user = supabase.auth.currentUser;
       if (user == null) {
@@ -82,6 +111,35 @@ class _DetailsPageState extends State<DetailsPage> {
           const SnackBar(content: Text('Please login first')),
         );
         return;
+      }
+
+      final cartSellerRows = await supabase
+          .from('cart_items')
+          .select('products!inner(seller_id)')
+          .eq('user_id', user.id)
+          .limit(1);
+
+      if (cartSellerRows.isNotEmpty) {
+        final existingSellerId =
+            ((cartSellerRows.first['products'] as Map?)?['seller_id'])
+                ?.toString();
+        final newSellerId = product.sellerId?.toString();
+
+        if (existingSellerId != null &&
+            existingSellerId.isNotEmpty &&
+            newSellerId != null &&
+            newSellerId.isNotEmpty &&
+            existingSellerId != newSellerId) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                'You can only buy from one seller at a time. Finish or clear the current cart first.',
+              ),
+            ),
+          );
+          return;
+        }
       }
 
       final existing = await supabase
@@ -123,6 +181,15 @@ class _DetailsPageState extends State<DetailsPage> {
   }
 
   Future<void> _makeOffer(Product product) async {
+    if (_isSubmittingOffer) return;
+
+    if (product.status.toLowerCase() == 'sold') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This product is already sold')),
+      );
+      return;
+    }
+
     final user = supabase.auth.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -186,6 +253,31 @@ class _DetailsPageState extends State<DetailsPage> {
     }
 
     try {
+      setState(() {
+        _isSubmittingOffer = true;
+      });
+
+      final existingOffer = await supabase
+          .from('offers')
+          .select('id, status')
+          .eq('product_id', product.id)
+          .eq('buyer_id', user.id)
+          .eq('seller_id', product.sellerId!)
+          .eq('status', 'pending')
+          .limit(1)
+          .maybeSingle();
+
+      if (existingOffer != null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('You already sent an offer for this product'),
+          ),
+        );
+        return;
+      }
+
       await supabase.from('offers').insert({
         'product_id': product.id,
         'buyer_id': user.id,
@@ -205,20 +297,117 @@ class _DetailsPageState extends State<DetailsPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Failed to send offer: $e')),
       );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmittingOffer = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _messageSeller(Product product) async {
+    final user = supabase.auth.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login first')),
+      );
+      return;
+    }
+
+    if (product.sellerId == null || product.sellerId!.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seller not available for this product')),
+      );
+      return;
+    }
+
+    if (product.sellerId == user.id) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('You cannot message yourself')),
+      );
+      return;
+    }
+
+    try {
+      final existingConversation = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('buyer_id', user.id)
+          .eq('seller_id', product.sellerId!)
+          .maybeSingle();
+
+      int conversationId;
+      if (existingConversation != null) {
+        conversationId = existingConversation['id'] as int;
+      } else {
+        final insertedConversation = await supabase
+            .from('conversations')
+            .insert({
+              'buyer_id': user.id,
+              'seller_id': product.sellerId,
+            })
+            .select('id')
+            .single();
+        conversationId = insertedConversation['id'] as int;
+      }
+
+      String sellerName = 'Seller';
+      final sellerProfile = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', product.sellerId!)
+          .maybeSingle();
+      if (sellerProfile != null) {
+        final fullName = (sellerProfile['full_name'] ?? '').toString().trim();
+        final email = (sellerProfile['email'] ?? '').toString().trim();
+        sellerName = fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : sellerName);
+      }
+      ChatIdentityCache.instance.remember(
+        userId: product.sellerId!,
+        name: sellerName,
+      );
+
+      if (!mounted) return;
+      await Navigator.pushNamed(
+        context,
+        '/chat',
+        arguments: {
+          'conversationId': conversationId,
+          'otherUserId': product.sellerId,
+          'otherUserName': sellerName,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to open chat: $e')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final product = ModalRoute.of(context)!.settings.arguments as Product;
+    final product = _product;
     final textColor = AppThemeColors.textPrimary(context);
     final secondaryText = AppThemeColors.textSecondary(context);
     final isDark = AppThemeColors.isDark(context);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _syncFavoriteState(product);
-      }
-    });
+
+    if (product == null) {
+      return Scaffold(
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+        body: Center(
+          child: Text(
+            'Product not available',
+            style: GoogleFonts.inter(
+              color: secondaryText,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final isSold = product.status.toLowerCase() == 'sold';
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -353,9 +542,32 @@ class _DetailsPageState extends State<DetailsPage> {
                       SizedBox(
                         width: double.infinity,
                         child: OutlinedButton.icon(
-                          onPressed: () => _makeOffer(product),
+                          onPressed: () => _messageSeller(product),
+                          icon: const Icon(Icons.chat_bubble_outline),
+                          label: const Text('Message Seller'),
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SizedBox(
+                        width: double.infinity,
+                        child: OutlinedButton.icon(
+                          onPressed: isSold || _isSubmittingOffer
+                              ? null
+                              : () => _makeOffer(product),
                           icon: const Icon(Icons.local_offer_outlined),
-                          label: const Text('Make Offer'),
+                          label: Text(
+                            isSold
+                                ? 'Out of Stock'
+                                : (_isSubmittingOffer
+                                      ? 'Sending Offer...'
+                                      : 'Make Offer'),
+                          ),
                           style: OutlinedButton.styleFrom(
                             padding: const EdgeInsets.symmetric(vertical: 14),
                             shape: RoundedRectangleBorder(
@@ -429,9 +641,9 @@ class _DetailsPageState extends State<DetailsPage> {
                   ),
                   const Spacer(),
                   ElevatedButton(
-                    onPressed: () => _addToCart(product),
+                    onPressed: isSold ? null : () => _addToCart(product),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: primaryRed,
+                      backgroundColor: isSold ? Colors.grey : primaryRed,
                       padding: const EdgeInsets.symmetric(
                         horizontal: 30,
                         vertical: 15,
@@ -441,7 +653,7 @@ class _DetailsPageState extends State<DetailsPage> {
                       ),
                     ),
                     child: Text(
-                      "Add to Cart",
+                      isSold ? "Out of Stock" : "Add to Cart",
                       style: GoogleFonts.poppins(
                         fontWeight: FontWeight.bold,
                         color: Colors.white,

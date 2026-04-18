@@ -1,7 +1,27 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
+Map<String, dynamic>? _firstRelationMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  if (value is List && value.isNotEmpty) {
+    final first = value.first;
+    if (first is Map<String, dynamic>) {
+      return first;
+    }
+    if (first is Map) {
+      return Map<String, dynamic>.from(first);
+    }
+  }
+  return null;
+}
 
 class OfferModel {
   final int id;
@@ -28,7 +48,7 @@ class OfferModel {
 
   factory OfferModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['offer_price'];
-    final product = map['products'] as Map<String, dynamic>?;
+    final product = _firstRelationMap(map['products']);
     return OfferModel(
       id: map['id'] as int,
       productId: map['product_id'] as int,
@@ -113,6 +133,19 @@ class _OffersPageState extends State<OffersPage> {
 
   String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
 
+  Color _statusColor(BuildContext context, String status) {
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        return Colors.green;
+      case 'cancelled':
+      case 'canceled':
+      case 'rejected':
+        return primaryRed;
+      default:
+        return AppThemeColors.textSecondary(context);
+    }
+  }
+
   Future<void> _checkoutAcceptedOffer(OfferModel offer) async {
     if (_isCheckingOut) return;
 
@@ -125,6 +158,7 @@ class _OffersPageState extends State<OffersPage> {
     }
 
     final nameController = TextEditingController();
+    final phoneController = TextEditingController();
     final addressController = TextEditingController();
     final cityController = TextEditingController();
     final stateController = TextEditingController();
@@ -135,7 +169,6 @@ class _OffersPageState extends State<OffersPage> {
     final cvcController = TextEditingController();
 
     String paymentMethod = 'Card';
-    bool useSameAddress = true;
     int checkoutStep = 0;
 
     final confirmed = await showDialog<bool>(
@@ -144,15 +177,17 @@ class _OffersPageState extends State<OffersPage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            final isBillingStep = checkoutStep == 0;
+            final isShippingStep = checkoutStep == 0;
             final isPaymentStep = checkoutStep == 1;
+            final dialogTextColor = AppThemeColors.textPrimary(dialogContext);
+            final dialogSurface = AppThemeColors.elevatedSurface(dialogContext);
 
             return Dialog(
               insetPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 24,
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: dialogSurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(28),
               ),
@@ -177,17 +212,17 @@ class _OffersPageState extends State<OffersPage> {
                                   checkoutStep -= 1;
                                 });
                               },
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.arrow_back_ios_new,
                                 size: 18,
-                                color: Colors.black,
+                                color: dialogTextColor,
                               ),
                             ),
                             const Spacer(),
                             IconButton(
                               onPressed: () =>
                                   Navigator.of(dialogContext).pop(false),
-                              icon: const Icon(Icons.close, color: Colors.black),
+                              icon: Icon(Icons.close, color: dialogTextColor),
                             ),
                           ],
                         ),
@@ -196,21 +231,27 @@ class _OffersPageState extends State<OffersPage> {
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black,
+                            color: dialogTextColor,
                           ),
                         ),
                         const SizedBox(height: 20),
                         _buildCheckoutStepper(checkoutStep),
                         const SizedBox(height: 28),
-                        if (isBillingStep) ...[
+                        if (isShippingStep) ...[
                           _buildCheckoutField(
                             controller: nameController,
                             label: 'Name',
                           ),
                           const SizedBox(height: 16),
                           _buildCheckoutField(
+                            controller: phoneController,
+                            label: 'Phone Number',
+                            keyboardType: TextInputType.phone,
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCheckoutField(
                             controller: addressController,
-                            label: 'Address',
+                            label: 'Shipping Address',
                           ),
                           const SizedBox(height: 16),
                           Row(
@@ -240,44 +281,6 @@ class _OffersPageState extends State<OffersPage> {
                               LengthLimitingTextInputFormatter(9),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          InkWell(
-                            onTap: () {
-                              setDialogState(() {
-                                useSameAddress = !useSameAddress;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    useSameAddress
-                                        ? Icons.check_box
-                                        : Icons.check_box_outline_blank,
-                                    size: 20,
-                                    color:
-                                        useSameAddress ? primaryRed : Colors.grey,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'Shipping address is the same as billing',
-                                    style: GoogleFonts.inter(
-                                      color: Colors.black87,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (isPaymentStep) ...[
-                          _buildCheckoutField(
-                            controller: cardNameController,
-                            label: 'Name on Card',
-                          ),
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: paymentMethod,
@@ -296,6 +299,12 @@ class _OffersPageState extends State<OffersPage> {
                                 paymentMethod = value;
                               });
                             },
+                          ),
+                        ],
+                        if (isPaymentStep) ...[
+                          _buildCheckoutField(
+                            controller: cardNameController,
+                            label: 'Name on Card',
                           ),
                           const SizedBox(height: 16),
                           _buildCheckoutField(
@@ -332,8 +341,9 @@ class _OffersPageState extends State<OffersPage> {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: () {
-                              if (isBillingStep) {
+                              if (isShippingStep) {
                                 if (nameController.text.trim().isEmpty ||
+                                    phoneController.text.trim().isEmpty ||
                                     addressController.text.trim().isEmpty ||
                                     cityController.text.trim().isEmpty ||
                                     stateController.text.trim().isEmpty ||
@@ -341,7 +351,7 @@ class _OffersPageState extends State<OffersPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text(
-                                        'Please complete your billing details',
+                                        'Please complete your shipping details',
                                       ),
                                     ),
                                   );
@@ -371,7 +381,9 @@ class _OffersPageState extends State<OffersPage> {
                               Navigator.of(dialogContext).pop(true);
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
+                              backgroundColor: AppThemeColors.isDark(dialogContext)
+                                  ? Colors.white
+                                  : Colors.black,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
@@ -379,10 +391,13 @@ class _OffersPageState extends State<OffersPage> {
                               ),
                             ),
                             child: Text(
-                              isBillingStep ? 'NEXT' : 'PAY NOW',
+                              isShippingStep ? 'NEXT' : 'PAY NOW',
                               style: GoogleFonts.poppins(
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 0.8,
+                                color: AppThemeColors.isDark(dialogContext)
+                                    ? Colors.black
+                                    : Colors.white,
                               ),
                             ),
                           ),
@@ -416,6 +431,7 @@ class _OffersPageState extends State<OffersPage> {
     });
 
     final fullName = nameController.text.trim();
+    final phoneNumber = phoneController.text.trim();
     final address = addressController.text.trim();
     final city = cityController.text.trim();
     final state = stateController.text.trim();
@@ -432,14 +448,15 @@ class _OffersPageState extends State<OffersPage> {
           .from('orders')
           .insert({
             'buyer_id': user.id,
+            'seller_id': offer.sellerId,
             'total_price': offer.offerPrice,
             'shipping_address': address,
+            'phone_number': phoneNumber,
             'payment_method': paymentMethod,
             'customer_name': fullName,
             'city': city,
             'state': state,
             'zipcode': zipCode,
-            'shipping_same_as_billing': useSameAddress,
             'card_holder_name': cardHolderName,
             'card_last4': cardLast4.isNotEmpty ? cardLast4 : null,
             'card_expiry': cardExpiry.isNotEmpty ? cardExpiry : null,
@@ -456,6 +473,10 @@ class _OffersPageState extends State<OffersPage> {
         'price': offer.offerPrice,
         'quantity': 1,
       });
+      await supabase
+          .from('products')
+          .update({'status': 'sold'})
+          .eq('id', offer.productId);
 
       if (!mounted) return;
       Navigator.pushNamedAndRemoveUntil(
@@ -471,6 +492,7 @@ class _OffersPageState extends State<OffersPage> {
       );
     } finally {
       nameController.dispose();
+      phoneController.dispose();
       addressController.dispose();
       cityController.dispose();
       stateController.dispose();
@@ -489,20 +511,22 @@ class _OffersPageState extends State<OffersPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: Colors.black),
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'My Offers',
           style: GoogleFonts.poppins(
-            color: Colors.black,
+            color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -538,7 +562,10 @@ class _OffersPageState extends State<OffersPage> {
                 children: [
                   Text(
                     'No offers yet',
-                    style: GoogleFonts.poppins(fontSize: 18, color: Colors.grey),
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
@@ -567,7 +594,7 @@ class _OffersPageState extends State<OffersPage> {
           margin: const EdgeInsets.only(bottom: 16),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
+            color: Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(18),
           ),
           child: Column(
@@ -578,7 +605,7 @@ class _OffersPageState extends State<OffersPage> {
                     width: 70,
                     height: 70,
                     decoration: BoxDecoration(
-                      color: Colors.white,
+                      color: AppThemeColors.elevatedSurface(context),
                       borderRadius: BorderRadius.circular(16),
                     ),
                     child: offer.productImage != null && offer.productImage!.isNotEmpty
@@ -586,7 +613,10 @@ class _OffersPageState extends State<OffersPage> {
                             borderRadius: BorderRadius.circular(16),
                             child: Image.network(offer.productImage!, fit: BoxFit.cover),
                           )
-                        : const Icon(Icons.image, color: Colors.grey),
+                        : Icon(
+                            Icons.image,
+                            color: AppThemeColors.textMuted(context),
+                          ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -598,6 +628,7 @@ class _OffersPageState extends State<OffersPage> {
                           style: GoogleFonts.poppins(
                             fontWeight: FontWeight.bold,
                             fontSize: 15,
+                            color: AppThemeColors.textPrimary(context),
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -613,7 +644,10 @@ class _OffersPageState extends State<OffersPage> {
                         const SizedBox(height: 6),
                         Text(
                           'Status: ${offer.status.toUpperCase()}',
-                          style: GoogleFonts.inter(color: Colors.black54),
+                          style: GoogleFonts.inter(
+                            color: _statusColor(context, offer.status),
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ],
                     ),
@@ -646,7 +680,10 @@ class _OffersPageState extends State<OffersPage> {
   }
 
   Widget _buildCheckoutStepper(int step) {
-    final labels = ['Billing', 'Payment', 'Confirmation'];
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
+    final labels = ['Shipping Address', 'Payment', 'Confirmation'];
 
     return Row(
       children: List.generate(labels.length * 2 - 1, (index) {
@@ -655,7 +692,7 @@ class _OffersPageState extends State<OffersPage> {
           return Expanded(
             child: Container(
               height: 1.6,
-              color: connectorActive ? Colors.black : Colors.black26,
+              color: connectorActive ? textColor : AppThemeColors.border(context),
             ),
           );
         }
@@ -669,9 +706,11 @@ class _OffersPageState extends State<OffersPage> {
               width: 14,
               height: 14,
               decoration: BoxDecoration(
-                color: isActive ? Colors.black : Colors.white,
+                color: isActive ? textColor : Colors.transparent,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.black54),
+                border: Border.all(
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -679,7 +718,7 @@ class _OffersPageState extends State<OffersPage> {
               labels[itemIndex],
               style: GoogleFonts.inter(
                 fontSize: 11,
-                color: isActive ? Colors.black : Colors.black45,
+                color: isActive ? textColor : secondaryText,
               ),
             ),
           ],
@@ -698,7 +737,10 @@ class _OffersPageState extends State<OffersPage> {
       controller: controller,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
-      style: GoogleFonts.inter(fontSize: 14),
+      style: GoogleFonts.inter(
+        fontSize: 14,
+        color: AppThemeColors.textPrimary(context),
+      ),
       decoration: _checkoutInputDecoration(label),
     );
   }
@@ -706,12 +748,17 @@ class _OffersPageState extends State<OffersPage> {
   InputDecoration _checkoutInputDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: GoogleFonts.inter(color: Colors.black45),
-      enabledBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.black26),
+      labelStyle: GoogleFonts.inter(
+        color: AppThemeColors.textSecondary(context),
       ),
-      focusedBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.black, width: 1.4),
+      enabledBorder: UnderlineInputBorder(
+        borderSide: BorderSide(color: AppThemeColors.border(context)),
+      ),
+      focusedBorder: UnderlineInputBorder(
+        borderSide: BorderSide(
+          color: AppThemeColors.textPrimary(context),
+          width: 1.4,
+        ),
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 12),
     );

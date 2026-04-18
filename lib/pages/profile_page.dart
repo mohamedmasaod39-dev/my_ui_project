@@ -24,6 +24,7 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _isLoading = true;
   bool _isSaving = false;
   bool _obscurePassword = true;
+  String _role = 'buyer';
 
   @override
   void initState() {
@@ -63,6 +64,7 @@ class _ProfilePageState extends State<ProfilePage> {
 
       _nameController.text = (data['full_name'] ?? '').toString();
       _emailController.text = (data['email'] ?? user.email ?? '').toString();
+      _role = (data['role'] ?? 'buyer').toString();
     } catch (e) {
       _showMessage('Failed to load profile: $e');
     } finally {
@@ -275,6 +277,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Widget build(BuildContext context) {
     final modeService = AppModeService.instance;
     final isSellerMode = modeService.isSeller;
+    final isAdmin = _role == 'admin';
     final textColor = AppThemeColors.textPrimary(context);
     final displayedName =
         _nameController.text.isEmpty ? 'User' : _nameController.text;
@@ -356,7 +359,14 @@ class _ProfilePageState extends State<ProfilePage> {
                   ),
                   const SizedBox(height: 40),
 
-                  if (!isSellerMode)
+                  if (isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Admin Dashboard",
+                      Icons.admin_panel_settings_outlined,
+                      '/admin',
+                    ),
+                  if (!isAdmin && !isSellerMode)
                     Container(
                       margin: const EdgeInsets.only(bottom: 15),
                       decoration: BoxDecoration(
@@ -386,14 +396,14 @@ class _ProfilePageState extends State<ProfilePage> {
                         },
                       ),
                     ),
-                  if (isSellerMode)
+                  if (!isAdmin && isSellerMode)
                     _buildProfileMenu(
                       context,
                       "Seller Dashboard",
                       Icons.storefront_outlined,
                       '/seller_home',
                     ),
-                  if (isSellerMode)
+                  if (!isAdmin && isSellerMode)
                     Container(
                       margin: const EdgeInsets.only(bottom: 15),
                       decoration: BoxDecoration(
@@ -423,43 +433,55 @@ class _ProfilePageState extends State<ProfilePage> {
                         },
                       ),
                     ),
-                  _buildProfileMenu(
-                    context,
-                    "My Products",
-                    Icons.storefront_outlined,
-                    '/my_products',
-                  ),
-                  _buildProfileMenu(
-                    context,
-                    "Sell Product",
-                    Icons.add_business_outlined,
-                    '/add_product',
-                  ),
-                  _buildProfileMenu(
-                    context,
-                    "My Orders",
-                    Icons.shopping_bag_outlined,
-                    '/orders',
-                  ),
-                  _buildProfileMenu(
-                    context,
-                    "Offers",
-                    Icons.local_offer_outlined,
-                    isSellerMode ? '/seller_offers' : '/offers',
-                  ),
-                  if (isSellerMode)
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "My Products",
+                      Icons.storefront_outlined,
+                      '/my_products',
+                    ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Sell Product",
+                      Icons.add_business_outlined,
+                      '/add_product',
+                    ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "My Orders",
+                      Icons.shopping_bag_outlined,
+                      '/orders',
+                    ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Offers",
+                      Icons.local_offer_outlined,
+                      isSellerMode ? '/seller_offers' : '/offers',
+                    ),
+                  if (!isAdmin && isSellerMode)
                     _buildProfileMenu(
                       context,
                       "Seller Orders",
                       Icons.receipt_long_outlined,
                       '/seller_orders',
                     ),
-                  _buildProfileMenu(
-                    context,
-                    "Wishlist",
-                    Icons.favorite_border,
-                    '/wishlist',
-                  ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Wishlist",
+                      Icons.favorite_border,
+                      '/wishlist',
+                    ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Messages",
+                      Icons.chat_bubble_outline,
+                      '/messages',
+                    ),
                   _buildProfileMenu(
                     context,
                     "Notifications",

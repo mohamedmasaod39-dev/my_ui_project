@@ -58,7 +58,7 @@ class SellerOrderModel {
       city: (order?['city'] ?? '').toString(),
       state: (order?['state'] ?? '').toString(),
       zipcode: (order?['zipcode'] ?? '').toString(),
-      paymentMethod: (order?['payment_method'] ?? 'N/A').toString(),
+      paymentMethod: (order?['payment_method'] ?? 'Card').toString(),
       cardHolderName: (order?['card_holder_name'] ?? '').toString(),
       cardLast4: (order?['card_last4'] ?? '').toString(),
       cardExpiry: (order?['card_expiry'] ?? '').toString(),
@@ -94,7 +94,9 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
   @override
   void dispose() {
     final channel = _ordersChannel;
+    _ordersChannel = null;
     if (channel != null) {
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     }
     super.dispose();
@@ -134,7 +136,9 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
 
       final response = await supabase
           .from('order_items')
-          .select('id, order_id, price, quantity, orders(status, customer_name, shipping_address, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry), products(title, main_image_url)')
+          .select(
+            'id, order_id, price, quantity, orders(status, customer_name, shipping_address, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry), products(title, main_image_url)',
+          )
           .eq('seller_id', user.id)
           .order('id', ascending: false);
 
@@ -192,41 +196,23 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
 
   Future<void> _updateOrderStatus(SellerOrderModel order, String newStatus) async {
     try {
-      final updatedOrder = await supabase
+      await supabase
           .from('orders')
           .update({'status': newStatus})
-          .eq('id', order.orderId)
-          .select('id, status')
+          .eq('id', order.orderId);
+
+      final refreshedOrderItem = await supabase
+          .from('order_items')
+          .select('orders(status)')
+          .eq('id', order.id)
           .maybeSingle();
 
-      if (updatedOrder == null) {
-        throw Exception('Order status update was blocked or no row was changed.');
-      }
+      final refreshedOrder = refreshedOrderItem?['orders'] as Map<String, dynamic>?;
+      final refreshedStatus = (refreshedOrder?['status'] ?? '').toString();
 
-      if (!mounted) return;
-      setState(() {
-        _orders = _orders.map((item) {
-          if (item.id != order.id) return item;
-          return SellerOrderModel(
-            id: item.id,
-            orderId: item.orderId,
-            price: item.price,
-            quantity: item.quantity,
-            orderStatus: (updatedOrder['status'] ?? newStatus).toString(),
-            customerName: item.customerName,
-            shippingAddress: item.shippingAddress,
-            city: item.city,
-            state: item.state,
-            zipcode: item.zipcode,
-            paymentMethod: item.paymentMethod,
-            cardHolderName: item.cardHolderName,
-            cardLast4: item.cardLast4,
-            cardExpiry: item.cardExpiry,
-            productTitle: item.productTitle,
-            productImage: item.productImage,
-          );
-        }).toList();
-      });
+      if (refreshedStatus != newStatus) {
+        throw Exception('Order status was not saved.');
+      }
 
       await _loadOrders();
       if (!mounted) return;
@@ -236,13 +222,15 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
         SnackBar(content: Text('Order updated to $newStatus')),
       );
     } catch (e) {
+      await _loadOrders();
       if (!mounted) return;
+      final message = e is PostgrestException && e.message.isNotEmpty
+          ? e.message
+          : e.toString();
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            'Could not update order',
-          ),
+          content: Text(message),
         ),
       );
     }

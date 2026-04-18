@@ -43,6 +43,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
   static const Color primaryRed = Color(0xFFDB4444);
 
   final supabase = Supabase.instance.client;
+  RealtimeChannel? _notificationsChannel;
   bool _isLoading = true;
   String? _errorMessage;
   List<NotificationModel> _notifications = [];
@@ -50,7 +51,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
   @override
   void initState() {
     super.initState();
+    _subscribeToNotifications();
     _loadNotifications();
+  }
+
+  @override
+  void dispose() {
+    final channel = _notificationsChannel;
+    _notificationsChannel = null;
+    if (channel != null) {
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    }
+    super.dispose();
+  }
+
+  void _subscribeToNotifications() {
+    _notificationsChannel = supabase
+        .channel('public:notifications')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          callback: (_) {
+            if (mounted) {
+              _loadNotifications();
+            }
+          },
+        )
+        .subscribe();
   }
 
   Future<void> _loadNotifications() async {
@@ -126,6 +155,42 @@ class _NotificationsPageState extends State<NotificationsPage> {
     } catch (_) {}
   }
 
+  Future<String> _homeRoute() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return '/login';
+
+    final profile = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .maybeSingle();
+
+    final role = (profile?['role'] ?? 'buyer').toString();
+    if (role == 'admin') return '/admin';
+    if (role == 'seller') return '/seller_home';
+    return '/home';
+  }
+
+  Future<void> _openNotification(NotificationModel notification) async {
+    await _markAsRead(notification);
+    if (!mounted) return;
+
+    switch (notification.type) {
+      case 'message':
+        await Navigator.pushNamed(context, '/messages');
+        break;
+      default:
+        final route = await _homeRoute();
+        if (!mounted) return;
+        await Navigator.pushNamed(context, route);
+        break;
+    }
+
+    if (mounted) {
+      _loadNotifications();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final textColor = AppThemeColors.textPrimary(context);
@@ -186,7 +251,11 @@ class _NotificationsPageState extends State<NotificationsPage> {
                   ),
                   const SizedBox(height: 14),
                   ElevatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/home'),
+                    onPressed: () async {
+                      final route = await _homeRoute();
+                      if (!mounted) return;
+                      Navigator.pushNamed(context, route);
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: primaryRed,
                       foregroundColor: Colors.white,
@@ -208,7 +277,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         final notification = _notifications[index];
         final textColor = AppThemeColors.textPrimary(context);
         return GestureDetector(
-          onTap: () => _markAsRead(notification),
+          onTap: () => _openNotification(notification),
           child: Container(
             margin: const EdgeInsets.only(bottom: 14),
             padding: const EdgeInsets.all(18),

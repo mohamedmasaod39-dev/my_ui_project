@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AdminPage extends StatefulWidget {
@@ -15,9 +16,13 @@ class _AdminPageState extends State<AdminPage> {
   final supabase = Supabase.instance.client;
 
   bool _isLoading = true;
+  String? _errorMessage;
   int _usersCount = 0;
+  int _buyersCount = 0;
+  int _sellersCount = 0;
   int _productsCount = 0;
   int _ordersCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -26,22 +31,60 @@ class _AdminPageState extends State<AdminPage> {
 
   Future<void> _loadAdminStats() async {
     try {
-      final usersResponse = await supabase.from('profiles').select('id');
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      final user = supabase.auth.currentUser;
+      if (user == null) {
+        _redirectUnauthorized('/login');
+        return;
+      }
+
+      final profile = await supabase
+          .from('profiles')
+          .select('role, full_name')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      final role = (profile?['role'] ?? '').toString();
+      if (role != 'admin') {
+        _redirectUnauthorized('/home');
+        return;
+      }
+
+      final usersResponse = await supabase.from('profiles').select('id, role');
       final productsResponse = await supabase.from('products').select('id');
       final ordersResponse = await supabase.from('orders').select('id');
+      final users = (usersResponse as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
       if (!mounted) return;
       setState(() {
-        _usersCount = (usersResponse as List).length;
+        _usersCount = users.length;
+        _buyersCount = users.where((item) => item['role'] == 'buyer').length;
+        _sellersCount = users.where((item) => item['role'] == 'seller').length;
         _productsCount = (productsResponse as List).length;
         _ordersCount = (ordersResponse as List).length;
         _isLoading = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
       setState(() {
+        _errorMessage = 'Could not load admin dashboard.\n$e';
         _isLoading = false;
       });
     }
+  }
+
+  void _redirectUnauthorized(String routeName) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('You are not allowed to open the admin dashboard.')),
+    );
+    Navigator.pushNamedAndRemoveUntil(context, routeName, (_) => false);
   }
 
   Future<void> _logout() async {
@@ -52,69 +95,96 @@ class _AdminPageState extends State<AdminPage> {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
-        backgroundColor: Colors.white,
+        backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         centerTitle: true,
         automaticallyImplyLeading: false,
         title: Text(
           'Admin Dashboard',
           style: GoogleFonts.poppins(
-            color: Colors.black,
-            fontWeight: FontWeight.bold,
+            color: textColor,
+            fontWeight: FontWeight.w700,
           ),
         ),
         actions: [
           IconButton(
             onPressed: _logout,
-            icon: const Icon(Icons.logout, color: Colors.black),
+            icon: Icon(Icons.logout, color: textColor),
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _errorMessage != null
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 48,
+                          color: secondaryText,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.inter(
+                            color: secondaryText,
+                            height: 1.5,
+                          ),
+                        ),
+                        const SizedBox(height: 18),
+                        ElevatedButton(
+                          onPressed: _loadAdminStats,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: primaryRed,
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
           : RefreshIndicator(
               onRefresh: _loadAdminStats,
               child: ListView(
                 padding: const EdgeInsets.all(24),
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(24),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(28),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Control Panel',
-                          style: GoogleFonts.poppins(
-                            color: Colors.white,
-                            fontSize: 26,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Monitor users, products, orders, and support activity for your graduation project demo.',
-                          style: GoogleFonts.inter(
-                            color: Colors.white70,
-                            height: 1.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 24),
                   Row(
                     children: [
                       Expanded(
                         child: _AdminStatCard(
                           title: 'Users',
                           value: '$_usersCount',
+                          highlighted: true,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: _AdminStatCard(
+                          title: 'Buyers',
+                          value: '$_buyersCount',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _AdminStatCard(
+                          title: 'Sellers',
+                          value: '$_sellersCount',
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -133,29 +203,34 @@ class _AdminPageState extends State<AdminPage> {
                         child: _AdminStatCard(
                           title: 'Orders',
                           value: '$_ordersCount',
-                          highlighted: true,
                         ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24),
                   _AdminActionTile(
-                    title: 'Open Buyer App',
-                    subtitle: 'Review the shopping experience from the buyer side.',
-                    icon: Icons.shopping_bag_outlined,
-                    onTap: () => Navigator.pushNamed(context, '/home'),
+                    title: 'All Orders',
+                    subtitle: 'Review every order between buyers and sellers.',
+                    icon: Icons.receipt_long_outlined,
+                    onTap: () => Navigator.pushNamed(context, '/admin_orders'),
                   ),
                   _AdminActionTile(
-                    title: 'Open Seller Dashboard',
-                    subtitle: 'Review products, offers, and seller orders.',
-                    icon: Icons.storefront_outlined,
-                    onTap: () => Navigator.pushNamed(context, '/seller_home'),
+                    title: 'Admin Profile',
+                    subtitle: 'Open your profile without exposing seller-only actions.',
+                    icon: Icons.manage_accounts_outlined,
+                    onTap: () => Navigator.pushNamed(context, '/profile'),
                   ),
                   _AdminActionTile(
-                    title: 'View Notifications',
-                    subtitle: 'Inspect user-facing notification screens.',
+                    title: 'Notifications',
+                    subtitle: 'Review user-facing notifications and announcements.',
                     icon: Icons.notifications_none,
                     onTap: () => Navigator.pushNamed(context, '/notifications'),
+                  ),
+                  _AdminActionTile(
+                    title: 'FAQ & Help',
+                    subtitle: 'Check support content that buyers and sellers will read.',
+                    icon: Icons.help_outline,
+                    onTap: () => Navigator.pushNamed(context, '/faq'),
                   ),
                 ],
               ),
@@ -177,10 +252,16 @@ class _AdminStatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final backgroundColor = highlighted
+        ? const Color(0xFFDB4444)
+        : AppThemeColors.surface(context);
+    final valueColor = highlighted ? Colors.white : AppThemeColors.textPrimary(context);
+    final labelColor = highlighted ? Colors.white70 : AppThemeColors.textSecondary(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 22),
       decoration: BoxDecoration(
-        color: highlighted ? const Color(0xFFDB4444) : const Color(0xFFF5F5F5),
+        color: backgroundColor,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -190,14 +271,14 @@ class _AdminStatCard extends StatelessWidget {
             style: GoogleFonts.poppins(
               fontSize: 24,
               fontWeight: FontWeight.bold,
-              color: highlighted ? Colors.white : Colors.black,
+              color: valueColor,
             ),
           ),
           const SizedBox(height: 6),
           Text(
             title,
             style: GoogleFonts.inter(
-              color: highlighted ? Colors.white70 : Colors.black54,
+              color: labelColor,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -225,28 +306,38 @@ class _AdminActionTile extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F5F5),
+        color: AppThemeColors.surface(context),
         borderRadius: BorderRadius.circular(24),
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
         leading: CircleAvatar(
           radius: 24,
-          backgroundColor: Colors.white,
+          backgroundColor: AppThemeColors.elevatedSurface(context),
           child: Icon(icon, color: _AdminPageState.primaryRed),
         ),
         title: Text(
           title,
-          style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          style: GoogleFonts.poppins(
+            fontWeight: FontWeight.bold,
+            color: AppThemeColors.textPrimary(context),
+          ),
         ),
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 6),
           child: Text(
             subtitle,
-            style: GoogleFonts.inter(color: Colors.black54, height: 1.4),
+            style: GoogleFonts.inter(
+              color: AppThemeColors.textSecondary(context),
+              height: 1.4,
+            ),
           ),
         ),
-        trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
+        trailing: Icon(
+          Icons.arrow_forward_ios,
+          size: 16,
+          color: AppThemeColors.textMuted(context),
+        ),
         onTap: onTap,
       ),
     );

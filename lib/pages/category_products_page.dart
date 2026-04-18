@@ -113,6 +113,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
     }
   }
 
+  String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+
   Future<void> _toggleFavorite(Product product) async {
     try {
       final isAdding = await wishlistService.toggle(product.id);
@@ -209,22 +211,36 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
             borderRadius: BorderRadius.circular(20),
           ),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
                 child: Stack(
                   children: [
-                    InkWell(
-                      onTap: () {
-                        Navigator.pushNamed(
-                          context,
-                          '/details',
-                          arguments: product,
-                        );
-                      },
-                      child: Center(
+                    Center(
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pushNamed(
+                            context,
+                            '/details',
+                            arguments: product,
+                          );
+                        },
                         child: Padding(
                           padding: const EdgeInsets.all(15),
-                          child: Image.network(product.image ?? ''),
+                          child: Hero(
+                            tag: product.tag,
+                            child:
+                                product.image != null && product.image!.isNotEmpty
+                                    ? Image.network(
+                                        product.image!,
+                                        fit: BoxFit.contain,
+                                      )
+                                    : const Icon(
+                                        Icons.image_not_supported,
+                                        color: Colors.grey,
+                                        size: 48,
+                                      ),
+                          ),
                         ),
                       ),
                     ),
@@ -237,8 +253,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                           backgroundColor: AppThemeColors.elevatedSurface(
                             context,
                           ),
+                          radius: 15,
                           child: Icon(
                             isFav ? Icons.favorite : Icons.favorite_border,
+                            size: 18,
                             color: isFav ? primaryRed : textColor,
                           ),
                         ),
@@ -257,9 +275,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                             color: Colors.black87,
                             borderRadius: BorderRadius.circular(999),
                           ),
-                          child: const Text(
+                          child: Text(
                             'Out of stock',
-                            style: TextStyle(
+                            style: GoogleFonts.inter(
                               color: Colors.white,
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -271,23 +289,39 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.all(10),
-                child: Column(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: GestureDetector(
+                  onTap: () {
+                    Navigator.pushNamed(
+                      context,
+                      '/details',
+                      arguments: product,
+                    );
+                  },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
                       product.title,
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.w600,
+                      style: GoogleFonts.inter(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
                         color: textColor,
                       ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
+                    const SizedBox(height: 4),
                     Text(
-                      "EGP ${product.price}",
-                      style: TextStyle(
+                      _formatPrice(product.price),
+                      style: GoogleFonts.poppins(
                         color: isOutOfStock ? Colors.grey : primaryRed,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
                       ),
                     ),
                   ],
+                  ),
                 ),
               ),
             ],

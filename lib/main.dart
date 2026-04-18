@@ -14,8 +14,10 @@ import 'pages/about_page.dart';
 import 'pages/category_products_page.dart';
 import 'pages/orders_page.dart';
 import 'pages/notifications_page.dart';
+import 'pages/messages_page.dart';
 import 'pages/offers_page.dart';
 import 'pages/checkout_success_page.dart';
+import 'pages/chat_page.dart';
 import 'pages/my_products_page.dart';
 import 'pages/add_edit_product_page.dart';
 import 'pages/role_selection_page.dart';
@@ -23,8 +25,10 @@ import 'pages/seller_home_page.dart';
 import 'pages/seller_orders_page.dart';
 import 'pages/seller_offers_page.dart';
 import 'pages/admin_page.dart';
+import 'pages/admin_orders_page.dart';
 import 'pages/app_settings_page.dart';
 import 'pages/reset_password_page.dart';
+import 'services/chat_identity_cache.dart';
 import 'services/theme_service.dart';
 
 final RouteObserver<ModalRoute<void>> routeObserver =
@@ -37,6 +41,7 @@ Future<void> main() async {
     url: 'https://bpmafrqnxisigfaxefiu.supabase.co',
     anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwbWFmcnFueGlzaWdmYXhlZml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTkxNTYsImV4cCI6MjA4OTIzNTE1Nn0.x2c1IwJwxkAKq90zrpxsDMX-5uW-FO3QOsc1vVIQfyA',
   );
+  await ChatIdentityCache.instance.initialize();
   await ThemeService.instance.initialize();
 
   runApp(const ListablesApp());
@@ -124,6 +129,7 @@ class ListablesApp extends StatelessWidget {
             '/signup': (context) => const SignupPage(),
             '/role_selection': (context) => const RoleSelectionPage(),
             '/admin': (context) => const AdminPage(),
+            '/admin_orders': (context) => const AdminOrdersPage(),
             '/home': (context) => const IndexPage(),
             '/seller_home': (context) => const SellerHomePage(),
             '/details': (context) => const DetailsPage(),
@@ -136,7 +142,9 @@ class ListablesApp extends StatelessWidget {
             '/category_products_page': (context) => const CategoryProductsPage(),
             '/orders': (context) => const OrdersPage(),
             '/notifications': (context) => const NotificationsPage(),
+            '/messages': (context) => const MessagesPage(),
             '/offers': (context) => const OffersPage(),
+            '/chat': (context) => const ChatPage(),
             '/checkout_success': (context) => const CheckoutSuccessPage(),
             '/my_products': (context) => const MyProductsPage(),
             '/add_product': (context) => const AddEditProductPage(),

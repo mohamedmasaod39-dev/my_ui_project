@@ -3,6 +3,25 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+Map<String, dynamic>? _firstRelationMap(dynamic value) {
+  if (value is Map<String, dynamic>) {
+    return value;
+  }
+  if (value is Map) {
+    return Map<String, dynamic>.from(value);
+  }
+  if (value is List && value.isNotEmpty) {
+    final first = value.first;
+    if (first is Map<String, dynamic>) {
+      return first;
+    }
+    if (first is Map) {
+      return Map<String, dynamic>.from(first);
+    }
+  }
+  return null;
+}
+
 class SellerOfferModel {
   const SellerOfferModel({
     required this.id,
@@ -22,7 +41,7 @@ class SellerOfferModel {
 
   factory SellerOfferModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['offer_price'];
-    final product = map['products'] as Map<String, dynamic>?;
+    final product = _firstRelationMap(map['products']);
 
     return SellerOfferModel(
       id: map['id'] as int,
@@ -120,6 +139,19 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
   }
 
   String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+
+  Color _statusColor(BuildContext context, String status) {
+    switch (status.toLowerCase()) {
+      case 'accepted':
+        return Colors.green;
+      case 'cancelled':
+      case 'canceled':
+      case 'rejected':
+        return primaryRed;
+      default:
+        return AppThemeColors.textSecondary(context);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +286,8 @@ class _SellerOffersPageState extends State<SellerOffersPage> {
                         Text(
                           'Status: ${offer.status.toUpperCase()}',
                           style: GoogleFonts.inter(
-                            color: AppThemeColors.textSecondary(context),
+                            color: _statusColor(context, offer.status),
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                       ],

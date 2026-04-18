@@ -7,12 +7,15 @@ class OrderModel {
   final int id;
   final double totalPrice;
   final String status;
+  final List<String> productTitles;
   final String? customerName;
   final String? shippingAddress;
   final String? city;
   final String? state;
   final String? zipcode;
   final String? paymentMethod;
+  final String? cancelledByRole;
+  final String? adminCancelReason;
   final String? cardHolderName;
   final String? cardLast4;
   final String? cardExpiry;
@@ -22,12 +25,15 @@ class OrderModel {
     required this.id,
     required this.totalPrice,
     required this.status,
+    required this.productTitles,
     required this.customerName,
     required this.shippingAddress,
     required this.city,
     required this.state,
     required this.zipcode,
     required this.paymentMethod,
+    required this.cancelledByRole,
+    required this.adminCancelReason,
     required this.cardHolderName,
     required this.cardLast4,
     required this.cardExpiry,
@@ -36,18 +42,27 @@ class OrderModel {
 
   factory OrderModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['total_price'];
+    final productTitles = (map['product_titles'] as List?)
+            ?.map((title) => title.toString().trim())
+            .where((title) => title.isNotEmpty)
+            .toList() ??
+        const <String>[];
+
     return OrderModel(
       id: map['id'] as int,
       totalPrice: rawPrice is num
           ? rawPrice.toDouble()
           : double.tryParse('${rawPrice ?? 0}') ?? 0,
       status: (map['status'] ?? 'pending').toString(),
+      productTitles: productTitles,
       customerName: map['customer_name']?.toString(),
       shippingAddress: map['shipping_address']?.toString(),
       city: map['city']?.toString(),
       state: map['state']?.toString(),
       zipcode: map['zipcode']?.toString(),
       paymentMethod: map['payment_method']?.toString(),
+      cancelledByRole: map['cancelled_by_role']?.toString(),
+      adminCancelReason: map['admin_cancel_reason']?.toString(),
       cardHolderName: map['card_holder_name']?.toString(),
       cardLast4: map['card_last4']?.toString(),
       cardExpiry: map['card_expiry']?.toString(),
@@ -82,7 +97,9 @@ class _OrdersPageState extends State<OrdersPage> {
   @override
   void dispose() {
     final channel = _ordersChannel;
+    _ordersChannel = null;
     if (channel != null) {
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     }
     super.dispose();
@@ -95,6 +112,16 @@ class _OrdersPageState extends State<OrdersPage> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'orders',
+          callback: (_) {
+            if (mounted) {
+              _loadOrders();
+            }
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'order_items',
           callback: (_) {
             if (mounted) {
               _loadOrders();
@@ -123,13 +150,57 @@ class _OrdersPageState extends State<OrdersPage> {
       final response = await supabase
           .from('orders')
           .select(
-            'id, total_price, status, customer_name, shipping_address, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry, created_at',
+            'id, total_price, status, customer_name, shipping_address, city, state, zipcode, payment_method, cancelled_by_role, admin_cancel_reason, card_holder_name, card_last4, card_expiry, created_at',
           )
           .eq('buyer_id', user.id)
           .order('created_at', ascending: false);
 
-      final loadedOrders = (response as List)
-          .map((item) => OrderModel.fromMap(item as Map<String, dynamic>))
+      final orders = (response as List)
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .toList();
+
+      final orderIds = orders
+          .map((item) => item['id'])
+          .whereType<int>()
+          .toList();
+
+      final productTitlesByOrderId = <int, List<String>>{};
+      if (orderIds.isNotEmpty) {
+        final orderItemsResponse = await supabase
+          .from('order_items')
+          .select(
+            'order_id, products(title)',
+          )
+            .inFilter('order_id', orderIds)
+            .order('order_id', ascending: false);
+
+        for (final rawItem in orderItemsResponse as List) {
+          final item = Map<String, dynamic>.from(rawItem as Map);
+          final orderId = item['order_id'] as int?;
+          if (orderId == null) continue;
+
+          final product =
+              item['products'] as Map<String, dynamic>? ??
+              const <String, dynamic>{};
+          final productTitle = (product['title'] ?? '').toString().trim();
+          if (productTitle.isEmpty) continue;
+
+          final titles = productTitlesByOrderId.putIfAbsent(
+            orderId,
+            () => <String>[],
+          );
+          if (!titles.contains(productTitle)) {
+            titles.add(productTitle);
+          }
+        }
+      }
+
+      final loadedOrders = orders
+          .map((item) {
+            item['product_titles'] =
+                productTitlesByOrderId[item['id']] ?? const <String>[];
+            return OrderModel.fromMap(item);
+          })
           .toList();
 
       if (!mounted) return;
@@ -279,6 +350,17 @@ class _OrdersPageState extends State<OrdersPage> {
                 ],
               ),
               const SizedBox(height: 10),
+              if (order.productTitles.isNotEmpty) ...[
+                Text(
+                  order.productTitles.join(', '),
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                    color: textColor,
+                  ),
+                ),
+                const SizedBox(height: 10),
+              ],
               Text(
                 _formatPrice(order.totalPrice),
                 style: GoogleFonts.poppins(
@@ -299,6 +381,15 @@ class _OrdersPageState extends State<OrdersPage> {
                 'Payment: ${order.paymentMethod?.isNotEmpty == true ? order.paymentMethod : 'Not set'}',
                 style: GoogleFonts.inter(color: textColor),
               ),
+              if (order.status == 'cancelled' &&
+                  order.cancelledByRole == 'admin' &&
+                  order.adminCancelReason?.trim().isNotEmpty == true) ...[
+                const SizedBox(height: 8),
+                Text(
+                  'Cancelled by admin: ${order.adminCancelReason}',
+                  style: GoogleFonts.inter(color: Colors.redAccent),
+                ),
+              ],
               if (order.cardHolderName?.isNotEmpty == true) ...[
                 const SizedBox(height: 4),
                 Text(

@@ -7,7 +7,10 @@ class CheckoutSuccessPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final orderId = ModalRoute.of(context)?.settings.arguments as int?;
+    final routeArgs = ModalRoute.of(context)?.settings.arguments;
+    final orderId = routeArgs is int ? routeArgs : null;
+    final orderIds =
+        routeArgs is List ? routeArgs.whereType<int>().toList() : null;
     final textColor = AppThemeColors.textPrimary(context);
 
     return Scaffold(
@@ -56,6 +59,8 @@ class CheckoutSuccessPage extends StatelessWidget {
               Text(
                 orderId != null
                     ? 'Your order #$orderId has been created and is now pending.'
+                    : orderIds != null && orderIds.isNotEmpty
+                    ? '${orderIds.length} separate seller orders have been created and are now pending.'
                     : 'Your order has been created and is now pending.',
                 textAlign: TextAlign.center,
                 style: GoogleFonts.inter(

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 
@@ -15,7 +15,7 @@ class LoginPage extends StatefulWidget {
 
 class _LoginPageState extends State<LoginPage> {
   bool _isPasswordVisible = false;
-  bool _isLoading = false;
+  bool _isEmailLoading = false;
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -50,7 +50,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
-    if (_isLoading) return;
+    if (_isEmailLoading) return;
 
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
@@ -62,7 +62,7 @@ class _LoginPageState extends State<LoginPage> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _isEmailLoading = true);
 
     try {
       final response = await _supabase.auth.signInWithPassword(
@@ -90,7 +90,7 @@ class _LoginPageState extends State<LoginPage> {
       );
     } finally {
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() => _isEmailLoading = false);
       }
     }
   }
@@ -190,14 +190,14 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: _isLoading ? null : _login,
+                      onPressed: _isEmailLoading ? null : _login,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFDB4444),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(15),
                         ),
                       ),
-                      child: _isLoading
+                      child: _isEmailLoading
                           ? const CircularProgressIndicator(color: Colors.white)
                           : Text(
                               "LOG IN",
@@ -210,11 +210,13 @@ class _LoginPageState extends State<LoginPage> {
                     ),
                   ),
 
-                  const SizedBox(height: 30),
+                  const SizedBox(height: 40),
 
                   Text(
                     "Or sign in with",
-                    style: GoogleFonts.inter(color: Colors.grey),
+                    style: GoogleFonts.inter(
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Row(
@@ -336,4 +338,5 @@ class _LoginPageState extends State<LoginPage> {
       child: FaIcon(icon, color: color, size: 24),
     );
   }
+
 }

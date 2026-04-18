@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'index_page.dart';
 
@@ -89,24 +90,6 @@ class _CartPageState extends State<CartPage> {
     }
   }
 
-  Future<void> _updateQuantity(CartItemModel item, int newQuantity) async {
-    if (newQuantity < 1) return;
-
-    try {
-      await supabase
-          .from('cart_items')
-          .update({'quantity': newQuantity})
-          .eq('id', item.id);
-
-      await _loadCart();
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to update quantity')),
-      );
-    }
-  }
-
   Future<void> _removeFromCart(int cartItemId) async {
     try {
       await supabase.from('cart_items').delete().eq('id', cartItemId);
@@ -137,6 +120,21 @@ class _CartPageState extends State<CartPage> {
     return 'EGP ${price.toStringAsFixed(0)}';
   }
 
+  Map<String, List<CartItemModel>> _groupCartItemsBySeller() {
+    final grouped = <String, List<CartItemModel>>{};
+
+    for (final item in _cartItems) {
+      final sellerId = item.product.sellerId?.trim();
+      final sellerKey =
+          sellerId != null && sellerId.isNotEmpty
+              ? sellerId
+              : 'unknown-seller';
+      grouped.putIfAbsent(sellerKey, () => []).add(item);
+    }
+
+    return grouped;
+  }
+
   Future<void> _checkout() async {
     if (_isCheckingOut || _cartItems.isEmpty) return;
 
@@ -150,6 +148,7 @@ class _CartPageState extends State<CartPage> {
     }
 
     final nameController = TextEditingController();
+    final phoneController = TextEditingController();
     final addressController = TextEditingController();
     final cityController = TextEditingController();
     final stateController = TextEditingController();
@@ -160,7 +159,6 @@ class _CartPageState extends State<CartPage> {
     final cvcController = TextEditingController();
 
     String paymentMethod = 'Card';
-    bool useSameAddress = true;
     int checkoutStep = 0;
 
     final confirmed = await showDialog<bool>(
@@ -169,15 +167,17 @@ class _CartPageState extends State<CartPage> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (dialogContext, setDialogState) {
-            final isBillingStep = checkoutStep == 0;
+            final isShippingStep = checkoutStep == 0;
             final isPaymentStep = checkoutStep == 1;
+            final dialogTextColor = AppThemeColors.textPrimary(dialogContext);
+            final dialogSurface = AppThemeColors.elevatedSurface(dialogContext);
 
             return Dialog(
               insetPadding: const EdgeInsets.symmetric(
                 horizontal: 20,
                 vertical: 24,
               ),
-              backgroundColor: Colors.white,
+              backgroundColor: dialogSurface,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(28),
               ),
@@ -202,17 +202,17 @@ class _CartPageState extends State<CartPage> {
                                   checkoutStep -= 1;
                                 });
                               },
-                              icon: const Icon(
+                              icon: Icon(
                                 Icons.arrow_back_ios_new,
                                 size: 18,
-                                color: Colors.black,
+                                color: dialogTextColor,
                               ),
                             ),
                             const Spacer(),
                             IconButton(
                               onPressed: () =>
                                   Navigator.of(dialogContext).pop(false),
-                              icon: const Icon(Icons.close, color: Colors.black),
+                              icon: Icon(Icons.close, color: dialogTextColor),
                             ),
                           ],
                         ),
@@ -221,21 +221,27 @@ class _CartPageState extends State<CartPage> {
                           style: GoogleFonts.poppins(
                             fontSize: 28,
                             fontWeight: FontWeight.bold,
-                            color: Colors.black,
+                            color: dialogTextColor,
                           ),
                         ),
                         const SizedBox(height: 20),
                         _buildCheckoutStepper(checkoutStep),
                         const SizedBox(height: 28),
-                        if (isBillingStep) ...[
+                        if (isShippingStep) ...[
                           _buildCheckoutField(
                             controller: nameController,
                             label: 'Name',
                           ),
                           const SizedBox(height: 16),
                           _buildCheckoutField(
+                            controller: phoneController,
+                            label: 'Phone Number',
+                            keyboardType: TextInputType.phone,
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCheckoutField(
                             controller: addressController,
-                            label: 'Address',
+                            label: 'Shipping Address',
                           ),
                           const SizedBox(height: 16),
                           Row(
@@ -265,44 +271,6 @@ class _CartPageState extends State<CartPage> {
                               LengthLimitingTextInputFormatter(9),
                             ],
                           ),
-                          const SizedBox(height: 14),
-                          InkWell(
-                            onTap: () {
-                              setDialogState(() {
-                                useSameAddress = !useSameAddress;
-                              });
-                            },
-                            borderRadius: BorderRadius.circular(12),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    useSameAddress
-                                        ? Icons.check_box
-                                        : Icons.check_box_outline_blank,
-                                    size: 20,
-                                    color:
-                                        useSameAddress ? primaryRed : Colors.grey,
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(
-                                    'Shipping address is the same as billing',
-                                    style: GoogleFonts.inter(
-                                      color: Colors.black87,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                        if (isPaymentStep) ...[
-                          _buildCheckoutField(
-                            controller: cardNameController,
-                            label: 'Name on Card',
-                          ),
                           const SizedBox(height: 16),
                           DropdownButtonFormField<String>(
                             initialValue: paymentMethod,
@@ -321,6 +289,12 @@ class _CartPageState extends State<CartPage> {
                                 paymentMethod = value;
                               });
                             },
+                          ),
+                        ],
+                        if (isPaymentStep) ...[
+                          _buildCheckoutField(
+                            controller: cardNameController,
+                            label: 'Name on Card',
                           ),
                           const SizedBox(height: 16),
                           if (paymentMethod == 'Card') ...[
@@ -359,8 +333,9 @@ class _CartPageState extends State<CartPage> {
                           width: double.infinity,
                           child: ElevatedButton(
                             onPressed: () {
-                              if (isBillingStep) {
+                              if (isShippingStep) {
                                 if (nameController.text.trim().isEmpty ||
+                                    phoneController.text.trim().isEmpty ||
                                     addressController.text.trim().isEmpty ||
                                     cityController.text.trim().isEmpty ||
                                     stateController.text.trim().isEmpty ||
@@ -368,7 +343,7 @@ class _CartPageState extends State<CartPage> {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     const SnackBar(
                                       content: Text(
-                                        'Please complete your billing details',
+                                        'Please complete your shipping details',
                                       ),
                                     ),
                                   );
@@ -399,7 +374,9 @@ class _CartPageState extends State<CartPage> {
                               Navigator.of(dialogContext).pop(true);
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.black,
+                              backgroundColor: AppThemeColors.isDark(dialogContext)
+                                  ? Colors.white
+                                  : Colors.black,
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(vertical: 16),
                               shape: RoundedRectangleBorder(
@@ -407,10 +384,13 @@ class _CartPageState extends State<CartPage> {
                               ),
                             ),
                             child: Text(
-                              isBillingStep ? 'NEXT' : 'PAY NOW',
+                              isShippingStep ? 'NEXT' : 'PAY NOW',
                               style: GoogleFonts.poppins(
                                 fontWeight: FontWeight.bold,
                                 letterSpacing: 0.8,
+                                color: AppThemeColors.isDark(dialogContext)
+                                    ? Colors.black
+                                    : Colors.white,
                               ),
                             ),
                           ),
@@ -432,6 +412,7 @@ class _CartPageState extends State<CartPage> {
       _isCheckingOut = true;
     });
     final fullName = nameController.text.trim();
+    final phoneNumber = phoneController.text.trim();
     final address = addressController.text.trim();
     final city = cityController.text.trim();
     final state = stateController.text.trim();
@@ -450,46 +431,69 @@ class _CartPageState extends State<CartPage> {
         }
       }
 
-      final insertedOrder = await supabase
-          .from('orders')
-          .insert({
-            'buyer_id': user.id,
-            'total_price': _subtotal,
-            'shipping_address': address,
-            'payment_method': paymentMethod,
-            'customer_name': fullName,
-            'city': city,
-            'state': state,
-            'zipcode': zipCode,
-            'shipping_same_as_billing': useSameAddress,
-            'card_holder_name': paymentMethod == 'Card' ? cardHolderName : null,
-            'card_last4': paymentMethod == 'Card' && cardLast4.isNotEmpty
-                ? cardLast4
-                : null,
-            'card_expiry': paymentMethod == 'Card' && cardExpiry.isNotEmpty
-                ? cardExpiry
-                : null,
-          })
-          .select('id')
-          .single();
+      final createdOrderIds = <int>[];
+      final groupedCartItems = _groupCartItemsBySeller();
 
-      final orderId = insertedOrder['id'] as int;
+      for (final sellerItems in groupedCartItems.values) {
+        final sellerTotal = sellerItems.fold<double>(
+          0,
+          (sum, item) => sum + (item.product.price * item.quantity),
+        );
 
-      final orderItems = _cartItems
-          .map(
-            (item) => {
-              'order_id': orderId,
-              'product_id': item.product.id,
-              'seller_id': item.product.sellerId,
-              'price': item.product.price,
-              'quantity': item.quantity,
-            },
-          )
-          .toList();
+        final insertedOrder = await supabase
+            .from('orders')
+            .insert({
+              'buyer_id': user.id,
+              'seller_id': sellerItems.first.product.sellerId,
+              'total_price': sellerTotal,
+              'shipping_address': address,
+              'phone_number': phoneNumber,
+              'payment_method': paymentMethod,
+              'customer_name': fullName,
+              'city': city,
+              'state': state,
+              'zipcode': zipCode,
+              'card_holder_name':
+                  paymentMethod == 'Card' ? cardHolderName : null,
+              'card_last4': paymentMethod == 'Card' && cardLast4.isNotEmpty
+                  ? cardLast4
+                  : null,
+              'card_expiry': paymentMethod == 'Card' && cardExpiry.isNotEmpty
+                  ? cardExpiry
+                  : null,
+            })
+            .select('id')
+            .single();
 
-      await supabase.from('order_items').insert(orderItems);
+        final orderId = insertedOrder['id'] as int;
+        createdOrderIds.add(orderId);
 
-      await supabase.from('cart_items').delete().eq('user_id', user.id);
+        final orderItems = sellerItems
+            .map(
+              (item) => {
+                'order_id': orderId,
+                'product_id': item.product.id,
+                'seller_id': item.product.sellerId,
+                'price': item.product.price,
+                'quantity': item.quantity,
+              },
+            )
+            .toList();
+
+        await supabase.from('order_items').insert(orderItems);
+        await supabase
+            .from('products')
+            .update({'status': 'sold'})
+            .inFilter(
+              'id',
+              sellerItems.map((item) => item.product.id).toSet().toList(),
+            );
+      }
+
+      await supabase.from('cart_items').delete().inFilter(
+        'id',
+        _cartItems.map((item) => item.id).toList(),
+      );
 
       await _loadCart();
 
@@ -498,7 +502,9 @@ class _CartPageState extends State<CartPage> {
         context,
         '/checkout_success',
         (route) => route.settings.name == '/home',
-        arguments: orderId,
+        arguments: createdOrderIds.length == 1
+            ? createdOrderIds.first
+            : createdOrderIds,
       );
     } catch (e) {
       if (!mounted) return;
@@ -507,6 +513,7 @@ class _CartPageState extends State<CartPage> {
       );
     } finally {
       nameController.dispose();
+      phoneController.dispose();
       addressController.dispose();
       cityController.dispose();
       stateController.dispose();
@@ -525,8 +532,10 @@ class _CartPageState extends State<CartPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppThemeColors.isDark(context);
+
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           _buildBody(),
@@ -538,7 +547,9 @@ class _CartPageState extends State<CartPage> {
               child: Container(
                 padding: const EdgeInsets.all(25),
                 decoration: BoxDecoration(
-                  color: Colors.black,
+                  color: isDark
+                      ? AppThemeColors.secondarySurface(context)
+                      : Colors.black,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(40),
                     topRight: Radius.circular(40),
@@ -577,12 +588,14 @@ class _CartPageState extends State<CartPage> {
                             children: [
                               Text(
                                 "Total Price",
-                                style: GoogleFonts.inter(color: Colors.white54),
+                                style: GoogleFonts.inter(
+                                  color: AppThemeColors.textMuted(context),
+                                ),
                               ),
                               Text(
                                 _formatPrice(_subtotal),
                                 style: GoogleFonts.poppins(
-                                  color: Colors.white,
+                                  color: AppThemeColors.textPrimary(context),
                                   fontSize: 24,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -643,6 +656,8 @@ class _CartPageState extends State<CartPage> {
   }
 
   Widget _buildBody() {
+    final textColor = AppThemeColors.textPrimary(context);
+
     if (_isLoading) {
       return const Center(
         child: CircularProgressIndicator(),
@@ -656,7 +671,7 @@ class _CartPageState extends State<CartPage> {
           children: [
             Text(
               _errorMessage!,
-              style: const TextStyle(fontSize: 16),
+              style: TextStyle(fontSize: 16, color: textColor),
             ),
             const SizedBox(height: 12),
             ElevatedButton(
@@ -679,22 +694,22 @@ class _CartPageState extends State<CartPage> {
             floating: false,
             pinned: true,
             elevation: 0,
-            backgroundColor: Colors.white,
+            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
             flexibleSpace: FlexibleSpaceBar(
               centerTitle: true,
               title: Text(
                 "Your Basket",
                 style: GoogleFonts.poppins(
-                  color: Colors.black,
+                  color: textColor,
                   fontWeight: FontWeight.bold,
                   fontSize: 18,
                 ),
               ),
             ),
             leading: IconButton(
-              icon: const Icon(
+              icon: Icon(
                 Icons.arrow_back_ios_new,
-                color: Colors.black,
+                color: textColor,
                 size: 20,
               ),
               onPressed: () => Navigator.pop(context),
@@ -707,7 +722,7 @@ class _CartPageState extends State<CartPage> {
                 "Your cart is empty",
                 style: GoogleFonts.poppins(
                   fontSize: 18,
-                  color: Colors.grey,
+                  color: AppThemeColors.textSecondary(context),
                 ),
               ),
             ),
@@ -726,22 +741,22 @@ class _CartPageState extends State<CartPage> {
           floating: false,
           pinned: true,
           elevation: 0,
-          backgroundColor: Colors.white,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           flexibleSpace: FlexibleSpaceBar(
             centerTitle: true,
             title: Text(
               "Your Basket",
               style: GoogleFonts.poppins(
-                color: Colors.black,
+                color: textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 18,
               ),
             ),
           ),
           leading: IconButton(
-            icon: const Icon(
+            icon: Icon(
               Icons.arrow_back_ios_new,
-              color: Colors.black,
+              color: textColor,
               size: 20,
             ),
             onPressed: () => Navigator.pop(context),
@@ -775,7 +790,7 @@ class _CartPageState extends State<CartPage> {
             width: 100,
             height: 100,
             decoration: BoxDecoration(
-              color: const Color(0xFFF5F5F5),
+              color: AppThemeColors.surface(context),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Hero(
@@ -785,17 +800,17 @@ class _CartPageState extends State<CartPage> {
                       product.image!,
                       fit: BoxFit.contain,
                       errorBuilder: (context, error, stackTrace) {
-                        return const Icon(
+                        return Icon(
                           Icons.image_not_supported,
                           size: 40,
-                          color: Colors.grey,
+                          color: AppThemeColors.textMuted(context),
                         );
                       },
                     )
-                  : const Icon(
+                  : Icon(
                       Icons.image,
                       size: 40,
-                      color: Colors.grey,
+                      color: AppThemeColors.textMuted(context),
                     ),
             ),
           ),
@@ -810,6 +825,7 @@ class _CartPageState extends State<CartPage> {
                   style: GoogleFonts.poppins(
                     fontWeight: FontWeight.bold,
                     fontSize: 16,
+                    color: AppThemeColors.textPrimary(context),
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -821,51 +837,17 @@ class _CartPageState extends State<CartPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    _qtyBtn(
-                      Icons.remove,
-                      () => _updateQuantity(item, item.quantity - 1),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        "${item.quantity}",
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
-                      ),
-                    ),
-                    _qtyBtn(
-                      Icons.add,
-                      () => _updateQuantity(item, item.quantity + 1),
-                    ),
-                  ],
-                ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.delete_outline, color: Colors.grey),
+            icon: Icon(
+              Icons.delete_outline,
+              color: AppThemeColors.textSecondary(context),
+            ),
             onPressed: () => _removeFromCart(item.id),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _qtyBtn(IconData icon, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, size: 16),
       ),
     );
   }
@@ -876,7 +858,10 @@ class _CartPageState extends State<CartPage> {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: GoogleFonts.inter(color: Colors.white54)),
+          Text(
+            label,
+            style: GoogleFonts.inter(color: AppThemeColors.textMuted(context)),
+          ),
           Text(
             value,
             style: GoogleFonts.poppins(
@@ -890,7 +875,11 @@ class _CartPageState extends State<CartPage> {
   }
 
   Widget _buildCheckoutStepper(int step) {
-    final labels = ['Billing', 'Payment', 'Confirmation'];
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
+
+    final labels = ['Shipping Address', 'Payment', 'Confirmation'];
 
     return Row(
       children: List.generate(labels.length * 2 - 1, (index) {
@@ -899,7 +888,7 @@ class _CartPageState extends State<CartPage> {
           return Expanded(
             child: Container(
               height: 1.6,
-              color: connectorActive ? Colors.black : Colors.black26,
+              color: connectorActive ? textColor : AppThemeColors.border(context),
             ),
           );
         }
@@ -913,9 +902,11 @@ class _CartPageState extends State<CartPage> {
               width: 14,
               height: 14,
               decoration: BoxDecoration(
-                color: isActive ? Colors.black : Colors.white,
+                color: isActive ? textColor : Colors.transparent,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.black54),
+                border: Border.all(
+                  color: isDark ? Colors.white70 : Colors.black54,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -923,7 +914,7 @@ class _CartPageState extends State<CartPage> {
               labels[itemIndex],
               style: GoogleFonts.inter(
                 fontSize: 11,
-                color: isActive ? Colors.black : Colors.black45,
+                color: isActive ? textColor : secondaryText,
               ),
             ),
           ],
@@ -942,7 +933,10 @@ class _CartPageState extends State<CartPage> {
       controller: controller,
       keyboardType: keyboardType,
       inputFormatters: inputFormatters,
-      style: GoogleFonts.inter(fontSize: 14),
+      style: GoogleFonts.inter(
+        fontSize: 14,
+        color: AppThemeColors.textPrimary(context),
+      ),
       decoration: _checkoutInputDecoration(label),
     );
   }
@@ -950,12 +944,17 @@ class _CartPageState extends State<CartPage> {
   InputDecoration _checkoutInputDecoration(String label) {
     return InputDecoration(
       labelText: label,
-      labelStyle: GoogleFonts.inter(color: Colors.black45),
-      enabledBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.black26),
+      labelStyle: GoogleFonts.inter(
+        color: AppThemeColors.textSecondary(context),
       ),
-      focusedBorder: const UnderlineInputBorder(
-        borderSide: BorderSide(color: Colors.black, width: 1.4),
+      enabledBorder: UnderlineInputBorder(
+        borderSide: BorderSide(color: AppThemeColors.border(context)),
+      ),
+      focusedBorder: UnderlineInputBorder(
+        borderSide: BorderSide(
+          color: AppThemeColors.textPrimary(context),
+          width: 1.4,
+        ),
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 12),
     );

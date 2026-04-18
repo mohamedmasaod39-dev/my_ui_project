@@ -1,16 +1,57 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 import '../services/app_mode_service.dart';
 
-class RoleSelectionPage extends StatelessWidget {
+class RoleSelectionPage extends StatefulWidget {
   const RoleSelectionPage({super.key});
 
+  @override
+  State<RoleSelectionPage> createState() => _RoleSelectionPageState();
+}
+
+class _RoleSelectionPageState extends State<RoleSelectionPage> {
   static const Color primaryRed = Color(0xFFDB4444);
 
-  void _selectMode(BuildContext context, AppMode mode) {
+  final SupabaseClient _supabase = Supabase.instance.client;
+  bool _isSavingRole = false;
+
+  Future<void> _selectMode(BuildContext context, AppMode mode) async {
+    if (_isSavingRole) return;
+
+    if (mode == AppMode.seller) {
+      final user = _supabase.auth.currentUser;
+      if (user == null) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please log in first.')),
+        );
+        Navigator.pushReplacementNamed(context, '/login');
+        return;
+      }
+
+      setState(() {
+        _isSavingRole = true;
+      });
+
+      try {
+        await _supabase.from('profiles').update({'role': 'seller'}).eq('id', user.id);
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to switch to seller mode: $e')),
+        );
+        setState(() {
+          _isSavingRole = false;
+        });
+        return;
+      }
+    }
+
     AppModeService.instance.setMode(mode);
+    if (!mounted) return;
     Navigator.pushReplacementNamed(
       context,
       mode == AppMode.buyer ? '/home' : '/seller_home',
@@ -66,6 +107,10 @@ class RoleSelectionPage extends StatelessWidget {
               accentColor: Colors.black,
               onTap: () => _selectMode(context, AppMode.seller),
             ),
+            if (_isSavingRole) ...[
+              const SizedBox(height: 24),
+              const Center(child: CircularProgressIndicator()),
+            ],
           ],
         ),
       ),
