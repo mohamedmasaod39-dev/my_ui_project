@@ -23,6 +23,12 @@ Map<String, dynamic>? _firstRelationMap(dynamic value) {
   return null;
 }
 
+int _toInt(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('${value ?? fallback}') ?? fallback;
+}
+
 class OfferModel {
   final int id;
   final int productId;
@@ -50,8 +56,8 @@ class OfferModel {
     final rawPrice = map['offer_price'];
     final product = _firstRelationMap(map['products']);
     return OfferModel(
-      id: map['id'] as int,
-      productId: map['product_id'] as int,
+      id: _toInt(map['id']),
+      productId: _toInt(map['product_id']),
       buyerId: (map['buyer_id'] ?? '').toString(),
       sellerId: (map['seller_id'] ?? '').toString(),
       offerPrice: rawPrice is num

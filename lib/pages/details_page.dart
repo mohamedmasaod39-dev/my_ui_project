@@ -70,6 +70,14 @@ class _DetailsPageState extends State<DetailsPage> {
     _syncFavoriteState(product);
   }
 
+  String? _normalizeUserId(String? value) {
+    final normalized = value?.trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return normalized;
+  }
+
   Future<void> _toggleFavorite(Product product) async {
     try {
       final isAdding = await wishlistService.toggle(product.id);
@@ -198,14 +206,24 @@ class _DetailsPageState extends State<DetailsPage> {
       return;
     }
 
-    if (product.sellerId == null || product.sellerId!.isEmpty) {
+    final sellerId = _normalizeUserId(product.sellerId);
+    final buyerId = _normalizeUserId(user.id);
+
+    if (sellerId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Seller not available for this product')),
       );
       return;
     }
 
-    if (product.sellerId == user.id) {
+    if (buyerId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please login again and try once more')),
+      );
+      return;
+    }
+
+    if (sellerId == buyerId) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('You cannot make an offer on your own product')),
       );
@@ -248,6 +266,8 @@ class _DetailsPageState extends State<DetailsPage> {
 
     priceController.dispose();
 
+    if (!mounted) return;
+
     if (offerPrice == null || offerPrice <= 0) {
       return;
     }
@@ -261,8 +281,8 @@ class _DetailsPageState extends State<DetailsPage> {
           .from('offers')
           .select('id, status')
           .eq('product_id', product.id)
-          .eq('buyer_id', user.id)
-          .eq('seller_id', product.sellerId!)
+          .eq('buyer_id', buyerId)
+          .eq('seller_id', sellerId)
           .eq('status', 'pending')
           .limit(1)
           .maybeSingle();
@@ -280,8 +300,8 @@ class _DetailsPageState extends State<DetailsPage> {
 
       await supabase.from('offers').insert({
         'product_id': product.id,
-        'buyer_id': user.id,
-        'seller_id': product.sellerId,
+        'buyer_id': buyerId,
+        'seller_id': sellerId,
         'offer_price': offerPrice,
         'status': 'pending',
       });
@@ -290,6 +310,13 @@ class _DetailsPageState extends State<DetailsPage> {
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Offer sent successfully')),
+      );
+    } on PostgrestException catch (e) {
+      if (!mounted) return;
+      final message = e.message.isNotEmpty ? e.message : 'Database rejected the offer';
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send offer: $message')),
       );
     } catch (e) {
       if (!mounted) return;

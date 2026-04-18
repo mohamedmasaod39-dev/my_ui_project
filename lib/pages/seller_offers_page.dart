@@ -22,6 +22,12 @@ Map<String, dynamic>? _firstRelationMap(dynamic value) {
   return null;
 }
 
+int _toInt(dynamic value, {int fallback = 0}) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse('${value ?? fallback}') ?? fallback;
+}
+
 class SellerOfferModel {
   const SellerOfferModel({
     required this.id,
@@ -44,7 +50,7 @@ class SellerOfferModel {
     final product = _firstRelationMap(map['products']);
 
     return SellerOfferModel(
-      id: map['id'] as int,
+      id: _toInt(map['id']),
       offerPrice: rawPrice is num
           ? rawPrice.toDouble()
           : double.tryParse('${rawPrice ?? 0}') ?? 0,
