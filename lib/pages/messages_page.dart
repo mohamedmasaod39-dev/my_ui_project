@@ -14,6 +14,7 @@ class ConversationPreview {
   final String otherUserId;
   final String otherUserName;
   final String otherUserRole;
+  final int unreadCount;
 
   const ConversationPreview({
     required this.id,
@@ -25,6 +26,7 @@ class ConversationPreview {
     required this.otherUserId,
     required this.otherUserName,
     required this.otherUserRole,
+    this.unreadCount = 0,
   });
 }
 
@@ -42,10 +44,90 @@ class _MessagesPageState extends State<MessagesPage> {
   String? _errorMessage;
   List<ConversationPreview> _conversations = [];
 
+  Future<bool> _confirmDeleteConversation(String otherUserName) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
+          title: Text(
+            'Delete chat?',
+            style: GoogleFonts.poppins(
+              color: AppThemeColors.textPrimary(dialogContext),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'This will permanently delete your conversation with $otherUserName.',
+            style: GoogleFonts.inter(
+              color: AppThemeColors.textSecondary(dialogContext),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDB4444),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return confirmed == true;
+  }
+
+  Future<void> _deleteConversation(ConversationPreview conversation) async {
+    final confirmed = await _confirmDeleteConversation(
+      conversation.otherUserName,
+    );
+    if (!confirmed) return;
+
+    try {
+      await supabase
+          .from('messages')
+          .delete()
+          .eq('conversation_id', conversation.id);
+      await supabase.from('conversations').delete().eq('id', conversation.id);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chat deleted successfully')),
+      );
+      await _loadConversations();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete chat: $e')),
+      );
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _loadConversations();
+    _markAllMessagesAsRead();
+  }
+
+  Future<void> _markAllMessagesAsRead() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      await supabase
+          .from('messages')
+          .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('receiver_id', user.id)
+          .isFilter('read_at', null);
+    } catch (_) {}
   }
 
   String _profileDisplayName(Map<String, dynamic> profile) {
@@ -61,11 +143,21 @@ class _MessagesPageState extends State<MessagesPage> {
 
   String _fallbackConversationName(String otherUserId, String otherUserRole) {
     final normalizedRole = otherUserRole.trim().toLowerCase();
-    if (normalizedRole == 'seller') return 'Seller';
-    if (normalizedRole == 'buyer') return 'Buyer';
+    if (normalizedRole == 'seller') return 'Unknown seller';
+    if (normalizedRole == 'buyer') return 'Unknown buyer';
     if (normalizedRole == 'admin') return 'Admin';
-    if (otherUserId.isEmpty) return 'Unknown';
-    return 'Chat';
+    if (otherUserId.isEmpty) return 'Unknown user';
+    return 'Unknown user';
+  }
+
+  bool _isGenericConversationName(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.isEmpty ||
+        normalized == 'chat' ||
+        normalized == 'seller' ||
+        normalized == 'buyer' ||
+        normalized == 'admin' ||
+        normalized == 'user';
   }
 
   Future<void> _loadConversations() async {
@@ -87,7 +179,7 @@ class _MessagesPageState extends State<MessagesPage> {
       final response = await supabase
           .from('conversations')
           .select(
-            'id, buyer_id, seller_id, last_message, last_message_at, created_at',
+            'id, buyer_id, seller_id, buyer_name, seller_name, last_message, last_message_at, created_at',
           )
           .or('buyer_id.eq.${user.id},seller_id.eq.${user.id}')
           .order('last_message_at', ascending: false)
@@ -152,37 +244,61 @@ class _MessagesPageState extends State<MessagesPage> {
             final lastMessage = (row['last_message'] ?? '').toString().trim();
             return lastMessage.isNotEmpty;
           })
-          .map((row) {
+          .map<Future<ConversationPreview>>((row) {
         final buyerId = (row['buyer_id'] ?? '').toString();
         final sellerId = (row['seller_id'] ?? '').toString();
         final otherUserId = buyerId == user.id ? sellerId : buyerId;
+        final storedConversationName = buyerId == user.id
+            ? (row['seller_name'] ?? '').toString().trim()
+            : (row['buyer_name'] ?? '').toString().trim();
         final otherUserRole = roleMap[otherUserId] ?? '';
         final lastMessageAtRaw = row['last_message_at'];
         final createdAtRaw = row['created_at'];
 
-        return ConversationPreview(
-          id: row['id'] as int,
-          buyerId: buyerId,
-          sellerId: sellerId,
-          lastMessage: row['last_message']?.toString(),
-          lastMessageAt: lastMessageAtRaw != null
-              ? DateTime.tryParse(lastMessageAtRaw.toString())?.toLocal()
-              : null,
-          createdAt:
-              DateTime.tryParse(createdAtRaw.toString())?.toLocal() ??
-              DateTime.now(),
-          otherUserId: otherUserId,
-          otherUserName:
-              ChatIdentityCache.instance.nameFor(otherUserId) ??
-              profileMap[otherUserId] ??
-              _fallbackConversationName(otherUserId, otherUserRole),
-          otherUserRole: otherUserRole,
-        );
+        return supabase
+            .from('messages')
+            .select('id')
+            .eq('conversation_id', row['id'] as int)
+            .eq('receiver_id', user.id)
+            .isFilter('read_at', null)
+            .then((unreadRes) {
+          return ConversationPreview(
+            id: row['id'] as int,
+            buyerId: buyerId,
+            sellerId: sellerId,
+            lastMessage: row['last_message']?.toString(),
+            lastMessageAt: lastMessageAtRaw != null
+                ? DateTime.tryParse(lastMessageAtRaw.toString())?.toLocal()
+                : null,
+            createdAt: DateTime.tryParse(createdAtRaw.toString())?.toLocal() ??
+                DateTime.now(),
+            otherUserId: otherUserId,
+            otherUserName: (() {
+              if (storedConversationName.isNotEmpty &&
+                  !_isGenericConversationName(storedConversationName)) {
+                return storedConversationName;
+              }
+              final profileName = profileMap[otherUserId];
+              if (profileName != null && !_isGenericConversationName(profileName)) {
+                return profileName;
+              }
+              final cachedName = ChatIdentityCache.instance.nameFor(otherUserId);
+              if (cachedName != null && !_isGenericConversationName(cachedName)) {
+                return cachedName;
+              }
+              return _fallbackConversationName(otherUserId, otherUserRole);
+            })(),
+            otherUserRole: otherUserRole,
+            unreadCount: (unreadRes as List).length,
+          );
+        });
       }).toList();
+
+      final resolvedConversations = await Future.wait(conversations);
 
       if (!mounted) return;
       setState(() {
-        _conversations = conversations;
+        _conversations = resolvedConversations;
       });
     } catch (e) {
       if (!mounted) return;
@@ -279,6 +395,7 @@ class _MessagesPageState extends State<MessagesPage> {
 
                   return InkWell(
                     borderRadius: BorderRadius.circular(20),
+                    onLongPress: () => _deleteConversation(conversation),
                     onTap: () async {
                       await Navigator.pushNamed(
                         context,
@@ -317,12 +434,38 @@ class _MessagesPageState extends State<MessagesPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  conversation.otherUserName,
-                                  style: GoogleFonts.poppins(
-                                    color: textColor,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      conversation.otherUserName,
+                                      style: GoogleFonts.poppins(
+                                        color: textColor,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    if (conversation.unreadCount > 0) ...[
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 6,
+                                          vertical: 2,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFDB4444),
+                                          borderRadius:
+                                              BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          '${conversation.unreadCount}',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
@@ -348,6 +491,12 @@ class _MessagesPageState extends State<MessagesPage> {
                               fontSize: 12,
                               color: AppThemeColors.textMuted(context),
                             ),
+                          ),
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.delete_outline,
+                            size: 18,
+                            color: AppThemeColors.textMuted(context),
                           ),
                         ],
                       ),

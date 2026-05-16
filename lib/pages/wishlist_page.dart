@@ -14,286 +14,221 @@ class WishlistPage extends StatefulWidget {
 
 class _WishlistPageState extends State<WishlistPage> {
   static const Color primaryRed = Color(0xFFDB4444);
-
   final supabase = Supabase.instance.client;
-  final wishlistService = WishlistService.instance;
+  final _wishlistService = WishlistService.instance;
   bool _isLoading = true;
-  String? _errorMessage;
   List<Product> _wishlistProducts = [];
 
   @override
   void initState() {
     super.initState();
     _loadWishlist();
-    wishlistService.favoriteIds.addListener(_onWishlistChanged);
-  }
-
-  @override
-  void dispose() {
-    wishlistService.favoriteIds.removeListener(_onWishlistChanged);
-    super.dispose();
-  }
-
-  void _onWishlistChanged() {
-    _loadWishlist();
   }
 
   Future<void> _loadWishlist() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    setState(() => _isLoading = true);
     try {
-      setState(() {
-        _isLoading = true;
-        _errorMessage = null;
-      });
-
-      final user = supabase.auth.currentUser;
-      if (user == null) {
-        setState(() {
-          _wishlistProducts = [];
-          _isLoading = false;
-        });
-        return;
-      }
-
       final response = await supabase
           .from('wishlist')
           .select('product_id, products(*)')
-          .eq('user_id', user.id)
-          .order('created_at', ascending: false);
+          .eq('user_id', user.id);
 
-      final items = response as List;
+      final List<Product> products = [];
+      for (var item in (response as List)) {
+        if (item['products'] != null) {
+          products.add(Product.fromMap(Map<String, dynamic>.from(item['products'])));
+        }
+      }
 
-      final loadedProducts = items
-          .map((item) => item['products'])
-          .where((product) => product != null)
-          .map((product) => Product.fromMap(Map<String, dynamic>.from(product)))
-          .toList();
-
-      setState(() {
-        _wishlistProducts = loadedProducts;
-      });
+      if (mounted) {
+        setState(() {
+          _wishlistProducts = products;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to load wishlist';
-      });
-    } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to load wishlist: $e')),
+        );
+      }
     }
   }
 
   Future<void> _removeFromWishlist(int productId) async {
     try {
+      await _wishlistService.toggle(productId);
       setState(() {
-        _wishlistProducts =
-            _wishlistProducts.where((product) => product.id != productId).toList();
+        _wishlistProducts.removeWhere((p) => p.id == productId);
       });
-
-      await wishlistService.remove(productId);
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Removed from wishlist')),
-      );
     } catch (e) {
-      if (!mounted) return;
-      await _loadWishlist();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to remove item')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to remove: $e')),
+        );
+      }
     }
-  }
-
-  String _formatPrice(double price) {
-    return 'EGP ${price.toStringAsFixed(0)}';
   }
 
   @override
   Widget build(BuildContext context) {
     final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       appBar: AppBar(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
+        leading: IconButton(
+          icon: Icon(Icons.arrow_back_ios, color: textColor),
+          onPressed: () => Navigator.pop(context),
+        ),
         title: Text(
-          "Wishlist",
+          'My Wishlist',
           style: GoogleFonts.poppins(
             color: textColor,
             fontWeight: FontWeight.bold,
           ),
         ),
         centerTitle: true,
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back_ios, color: textColor),
-          onPressed: () => Navigator.pop(context),
-        ),
       ),
-      body: RefreshIndicator(
-        onRefresh: _loadWishlist,
-        child: _buildBody(),
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : _wishlistProducts.isEmpty
+              ? _buildEmptyState(secondaryText)
+              : _buildProductList(textColor, secondaryText),
     );
   }
 
-  Widget _buildBody() {
-    if (_isLoading) {
-      return const SingleChildScrollView(
-        physics: AlwaysScrollableScrollPhysics(),
-        child: SizedBox(
-          height: 600,
-          child: Center(child: CircularProgressIndicator()),
-        ),
-      );
-    }
-
-    if (_errorMessage != null) {
-      return SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: SizedBox(
-          height: 600,
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(_errorMessage!, style: const TextStyle(fontSize: 16)),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  onPressed: _loadWishlist,
-                  child: const Text('Try Again'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-
-    if (_wishlistProducts.isEmpty) {
-      return SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        child: SizedBox(
-          height: 600,
-          child: _buildEmptyState(),
-        ),
-      );
-    }
-
-    return GridView.builder(
-      padding: const EdgeInsets.all(20),
-      physics: const AlwaysScrollableScrollPhysics(
-        parent: BouncingScrollPhysics(),
-      ),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 2,
-        crossAxisSpacing: 15,
-        mainAxisSpacing: 15,
-        childAspectRatio: 0.7,
-      ),
-      itemCount: _wishlistProducts.length,
-      itemBuilder: (context, index) =>
-          _buildWishlistCard(_wishlistProducts[index]),
-    );
-  }
-
-  Widget _buildWishlistCard(Product product) {
-    final textColor = AppThemeColors.textPrimary(context);
-
-    return GestureDetector(
-      onTap: () => Navigator.pushNamed(context, '/details', arguments: product),
-        child: Container(
-          decoration: BoxDecoration(
-          color: AppThemeColors.surface(context),
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Stack(
-          children: [
-            Column(
-              children: [
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(15),
-                    child: product.image != null && product.image!.isNotEmpty
-                        ? Image.network(
-                            product.image!,
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Icon(
-                                Icons.image_not_supported,
-                                size: 50,
-                                color: Colors.grey,
-                              );
-                            },
-                          )
-                        : const Icon(
-                            Icons.image,
-                            size: 50,
-                            color: Colors.grey,
-                          ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: [
-                      Text(
-                        product.title,
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: textColor,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        _formatPrice(product.price),
-                        style: const TextStyle(
-                          color: primaryRed,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            Positioned(
-              top: 10,
-              right: 10,
-              child: CircleAvatar(
-                backgroundColor: AppThemeColors.elevatedSurface(context),
-                child: IconButton(
-                  icon: const Icon(Icons.delete_outline, color: primaryRed),
-                  onPressed: () => _removeFromWishlist(product.id),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(Color secondaryText) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.favorite_border, size: 80, color: Colors.grey[300]),
+          Icon(
+            Icons.favorite_border,
+            size: 80,
+            color: secondaryText.withValues(alpha: 0.2),
+          ),
           const SizedBox(height: 20),
           Text(
-            "Your wishlist is empty",
+            'Your wishlist is empty',
             style: GoogleFonts.poppins(
               fontSize: 18,
-              color: AppThemeColors.textSecondary(context),
+              fontWeight: FontWeight.w600,
+              color: secondaryText,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            'Save items you like for later!',
+            style: GoogleFonts.inter(color: secondaryText.withValues(alpha: 0.7)),
+          ),
+          const SizedBox(height: 30),
+          ElevatedButton(
+            onPressed: () => Navigator.pushReplacementNamed(context, '/home'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryRed,
+              padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(15),
+              ),
+            ),
+            child: Text(
+              'Start Shopping',
+              style: GoogleFonts.inter(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildProductList(Color textColor, Color secondaryText) {
+    return ListView.builder(
+      padding: const EdgeInsets.all(20),
+      itemCount: _wishlistProducts.length,
+      itemBuilder: (context, index) {
+        final product = _wishlistProducts[index];
+        return Container(
+          margin: const EdgeInsets.only(bottom: 15),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppThemeColors.surface(context),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(15),
+                child: product.image != null && product.image!.isNotEmpty
+                    ? Image.network(
+                        product.image!,
+                        width: 80,
+                        height: 80,
+                        fit: BoxFit.cover,
+                      )
+                    : Container(
+                        width: 80,
+                        height: 80,
+                        color: Colors.grey.withValues(alpha: 0.1),
+                        child: const Icon(Icons.image, color: Colors.grey),
+                      ),
+              ),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.title,
+                      style: GoogleFonts.poppins(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        color: textColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${product.currency} ${product.price.toStringAsFixed(0)}',
+                      style: GoogleFonts.poppins(
+                        color: primaryRed,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.favorite, color: primaryRed),
+                    onPressed: () => _removeFromWishlist(product.id),
+                  ),
+                  IconButton(
+                    icon: Icon(Icons.arrow_forward_ios, size: 16, color: secondaryText),
+                    onPressed: () => Navigator.pushNamed(
+                      context,
+                      '/details',
+                      arguments: product,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

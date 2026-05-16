@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -20,6 +21,12 @@ class _ProfilePageState extends State<ProfilePage> {
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
+  final TextEditingController _shopNameController = TextEditingController();
+  final TextEditingController _bioController = TextEditingController();
+  final TextEditingController _locationController = TextEditingController();
+  final TextEditingController _phoneController = TextEditingController();
+  final TextEditingController _avatarUrlController = TextEditingController();
+
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -37,12 +44,32 @@ class _ProfilePageState extends State<ProfilePage> {
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _shopNameController.dispose();
+    _bioController.dispose();
+    _locationController.dispose();
+    _phoneController.dispose();
+    _avatarUrlController.dispose();
+
     super.dispose();
   }
 
   bool _isValidEmail(String email) {
     final emailRegex = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
     return emailRegex.hasMatch(email);
+  }
+
+  String _profileDisplayName({
+    required String fullName,
+    required String email,
+  }) {
+    final trimmedFullName = fullName.trim();
+    if (trimmedFullName.isNotEmpty) return trimmedFullName;
+
+    final trimmedEmail = email.trim();
+    if (trimmedEmail.isEmpty) return '';
+
+    final localPart = trimmedEmail.split('@').first.trim();
+    return localPart.isNotEmpty ? localPart : trimmedEmail;
   }
 
   Future<void> _loadUser() async {
@@ -64,7 +91,28 @@ class _ProfilePageState extends State<ProfilePage> {
 
       _nameController.text = (data['full_name'] ?? '').toString();
       _emailController.text = (data['email'] ?? user.email ?? '').toString();
+      _shopNameController.text = (data['shop_name'] ?? '').toString();
+      _bioController.text = (data['bio'] ?? '').toString();
+      _locationController.text = (data['location'] ?? '').toString();
+      _phoneController.text = (data['phone'] ?? '').toString();
+      _avatarUrlController.text = (data['avatar_url'] ?? '').toString();
       _role = (data['role'] ?? 'buyer').toString();
+      if (_role == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+      } else if (_role == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
+
+      final displayName = _profileDisplayName(
+        fullName: _nameController.text,
+        email: _emailController.text,
+      );
+      if (displayName.isNotEmpty) {
+        await ChatIdentityCache.instance.remember(
+          userId: user.id,
+          name: displayName,
+        );
+      }
     } catch (e) {
       _showMessage('Failed to load profile: $e');
     } finally {
@@ -74,7 +122,7 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  Future<void> _updateProfile() async {
+  Future<void> _updateProfile(String updatedRole) async {
     if (_isSaving) return;
 
     final user = supabase.auth.currentUser;
@@ -124,7 +172,31 @@ class _ProfilePageState extends State<ProfilePage> {
       await supabase.from('profiles').update({
         'full_name': fullName,
         'email': newEmail,
+        'role': updatedRole,
+        'shop_name': _shopNameController.text.trim(),
+        'bio': _bioController.text.trim(),
+        'location': _locationController.text.trim(),
+        'phone': _phoneController.text.trim(),
+        'avatar_url': _avatarUrlController.text.trim(),
       }).eq('id', user.id);
+
+      final displayName = _profileDisplayName(
+        fullName: fullName,
+        email: newEmail,
+      );
+      if (displayName.isNotEmpty) {
+        await ChatIdentityCache.instance.remember(
+          userId: user.id,
+          name: displayName,
+        );
+      }
+
+      _role = updatedRole;
+      if (updatedRole == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+      } else if (updatedRole == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
 
       _passwordController.clear();
 
@@ -153,6 +225,7 @@ class _ProfilePageState extends State<ProfilePage> {
       _showMessage('Logout failed: $e');
     }
   }
+
 
   void _showEditDialog() {
     _passwordController.clear();
@@ -203,6 +276,56 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
+                    if (_role == 'seller') ...[
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Divider(),
+                      ),
+                      Text(
+                        'Shop Setup',
+                        style: GoogleFonts.poppins(
+                          fontWeight: FontWeight.bold,
+                          color: primaryRed,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _shopNameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Shop Name',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _bioController,
+                        maxLines: 2,
+                        decoration: const InputDecoration(
+                          labelText: 'Shop Bio',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _locationController,
+                        decoration: const InputDecoration(
+                          labelText: 'Shop Location',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        decoration: const InputDecoration(
+                          labelText: 'Shop Phone',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: _avatarUrlController,
+                        decoration: const InputDecoration(
+                          labelText: 'Shop Avatar URL',
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -212,7 +335,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
-                  onPressed: _isSaving ? null : _updateProfile,
+                  onPressed: _isSaving ? null : () => _updateProfile(_role),
                   child: _isSaving
                       ? const SizedBox(
                           width: 18,
@@ -366,81 +489,59 @@ class _ProfilePageState extends State<ProfilePage> {
                       Icons.admin_panel_settings_outlined,
                       '/admin',
                     ),
-                  if (!isAdmin && !isSellerMode)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 15),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.arrow_circle_right_outlined,
+                  // Account Type Indicator (Read-only, matches website)
+                  Container(
+                    margin: const EdgeInsets.only(bottom: 15),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).cardColor,
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          _role == 'admin' 
+                            ? Icons.admin_panel_settings_outlined 
+                            : _role == 'seller' 
+                              ? Icons.storefront_outlined 
+                              : Icons.person_outline,
                           color: textColor,
                         ),
-                        title: Text(
-                          'Open Seller Mode',
+                        const SizedBox(width: 12),
+                        Text(
+                          'Account Type',
                           style: GoogleFonts.inter(
                             fontWeight: FontWeight.w500,
                             color: textColor,
                           ),
                         ),
-                        trailing: Icon(
-                          Icons.arrow_forward_ios,
-                          size: 16,
-                          color: AppThemeColors.textSecondary(context),
+                        const Spacer(),
+                        Text(
+                          _role.toUpperCase(),
+                          style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            color: primaryRed,
+                          ),
                         ),
-                        onTap: () {
-                          modeService.setMode(AppMode.seller);
-                          Navigator.pushReplacementNamed(context, '/seller_home');
-                        },
-                      ),
+                      ],
                     ),
-                  if (!isAdmin && isSellerMode)
+                  ),
+
+                  if (!isAdmin && (isSellerMode || _role == 'seller'))
                     _buildProfileMenu(
                       context,
                       "Seller Dashboard",
-                      Icons.storefront_outlined,
+                      Icons.dashboard_customize_outlined,
                       '/seller_home',
                     ),
                   if (!isAdmin && isSellerMode)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 15),
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).cardColor,
-                        borderRadius: BorderRadius.circular(15),
-                      ),
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.shopping_bag_outlined,
-                          color: textColor,
-                        ),
-                        title: Text(
-                          'Switch To Buyer',
-                          style: GoogleFonts.inter(
-                            fontWeight: FontWeight.w500,
-                            color: textColor,
-                          ),
-                        ),
-                        trailing: const Icon(
-                          Icons.arrow_forward_ios,
-                          size: 16,
-                          color: Colors.grey,
-                        ),
-                        onTap: () {
-                          modeService.setMode(AppMode.buyer);
-                          Navigator.pushReplacementNamed(context, '/home');
-                        },
-                      ),
-                    ),
-                  if (!isAdmin)
                     _buildProfileMenu(
                       context,
                       "My Products",
                       Icons.storefront_outlined,
                       '/my_products',
                     ),
-                  if (!isAdmin)
+                  if (!isAdmin && isSellerMode)
                     _buildProfileMenu(
                       context,
                       "Sell Product",
@@ -457,9 +558,9 @@ class _ProfilePageState extends State<ProfilePage> {
                   if (!isAdmin)
                     _buildProfileMenu(
                       context,
-                      "Offers",
-                      Icons.local_offer_outlined,
-                      isSellerMode ? '/seller_offers' : '/offers',
+                      "My Wishlist",
+                      Icons.favorite_border,
+                      '/wishlist',
                     ),
                   if (!isAdmin && isSellerMode)
                     _buildProfileMenu(
@@ -467,13 +568,6 @@ class _ProfilePageState extends State<ProfilePage> {
                       "Seller Orders",
                       Icons.receipt_long_outlined,
                       '/seller_orders',
-                    ),
-                  if (!isAdmin)
-                    _buildProfileMenu(
-                      context,
-                      "Wishlist",
-                      Icons.favorite_border,
-                      '/wishlist',
                     ),
                   if (!isAdmin)
                     _buildProfileMenu(
@@ -503,6 +597,13 @@ class _ProfilePageState extends State<ProfilePage> {
                     Icons.info_outline,
                     '/about',
                   ),
+                  if (!isAdmin)
+                    _buildProfileMenu(
+                      context,
+                      "Contact Support",
+                      Icons.contact_support_outlined,
+                      '/contact',
+                    ),
                   _buildProfileMenu(
                     context,
                     "App Settings",

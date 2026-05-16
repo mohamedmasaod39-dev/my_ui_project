@@ -17,23 +17,39 @@ class _SearchPageState extends State<SearchPage> {
   final supabase = Supabase.instance.client;
   final TextEditingController _searchController = TextEditingController();
 
-  final List<String> categories = [
-    "All",
-    "new",
-    "used",
-  ];
-
   int selectedCategory = 0;
   bool _isLoading = true;
   String? _errorMessage;
   List<Product> _allProducts = [];
   List<Product> _filteredProducts = [];
+  List<Map<String, dynamic>> _categories = [
+    {'id': 0, 'name': 'All'}
+  ];
 
   @override
   void initState() {
     super.initState();
+    _loadCategories();
     _loadProducts();
     _searchController.addListener(_applyFilters);
+  }
+
+  Future<void> _loadCategories() async {
+    // Hardcoded to match website baseline
+    final baseline = [
+      {'id': 0, 'name': 'All'},
+      {'id': 1, 'name': 'Electronics'},
+      {'id': 2, 'name': 'Fashion for Men'},
+      {'id': 3, 'name': 'Women'},
+      {'id': 4, 'name': 'Kids'},
+      {'id': 5, 'name': 'Watches'},
+      {'id': 6, 'name': 'Extras'},
+    ];
+
+    if (!mounted) return;
+    setState(() {
+      _categories = baseline;
+    });
   }
 
   @override
@@ -53,6 +69,8 @@ class _SearchPageState extends State<SearchPage> {
           .from('products')
           .select()
           .eq('status', 'active')
+          .eq('validated', true)
+          .gt('stock_qty', 0)
           .order('created_at', ascending: false);
 
       final loadedProducts = (response as List)
@@ -81,9 +99,9 @@ class _SearchPageState extends State<SearchPage> {
     List<Product> result = List.from(_allProducts);
 
     if (selectedCategory != 0) {
-      final selectedCondition = categories[selectedCategory].toLowerCase();
+      final categoryId = _categories[selectedCategory]['id'];
       result = result
-          .where((product) => product.condition.toLowerCase() == selectedCondition)
+          .where((product) => product.categoryId == categoryId)
           .toList();
     }
 
@@ -99,8 +117,8 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  String _formatPrice(double price) {
-    return 'EGP ${price.toStringAsFixed(0)}';
+  String _formatPrice(Product product) {
+    return '${product.currency} ${product.price.toStringAsFixed(0)}';
   }
 
   @override
@@ -155,7 +173,7 @@ class _SearchPageState extends State<SearchPage> {
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.only(left: 20),
-              itemCount: categories.length,
+              itemCount: _categories.length,
               itemBuilder: (context, index) => _buildFilterChip(index),
             ),
           ),
@@ -247,7 +265,7 @@ class _SearchPageState extends State<SearchPage> {
         ),
         child: Center(
           child: Text(
-            categories[index],
+            _categories[index]['name'],
             style: GoogleFonts.inter(
               color: isSelected ? Colors.white : textColor,
               fontWeight: FontWeight.w600,
@@ -261,6 +279,7 @@ class _SearchPageState extends State<SearchPage> {
 
   Widget _buildSearchCard(Product product) {
     final textColor = AppThemeColors.textPrimary(context);
+    final isOutOfStock = !product.isBuyable;
 
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/details', arguments: product),
@@ -311,9 +330,9 @@ class _SearchPageState extends State<SearchPage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _formatPrice(product.price),
-                    style: const TextStyle(
-                      color: primaryRed,
+                    _formatPrice(product),
+                    style: TextStyle(
+                      color: isOutOfStock ? Colors.grey : primaryRed,
                       fontWeight: FontWeight.bold,
                     ),
                   ),

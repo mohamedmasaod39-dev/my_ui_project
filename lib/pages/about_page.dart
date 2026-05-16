@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 class AboutUsPage extends StatelessWidget {
   const AboutUsPage({super.key});
@@ -8,8 +9,12 @@ class AboutUsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryTextColor = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: Stack(
         children: [
           // 1. ARTISTIC BACKGROUND GRADIENTS
@@ -47,14 +52,14 @@ class AboutUsPage extends StatelessWidget {
                             padding: const EdgeInsets.all(25),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                color: Colors.white12,
+                                color: isDark ? Colors.white12 : Colors.black12,
                                 width: 2,
                               ),
                               shape: BoxShape.circle,
                             ),
-                            child: const Icon(
+                            child: Icon(
                               Icons.shopping_bag_outlined,
-                              color: Colors.white,
+                              color: textColor,
                               size: 60,
                             ),
                           ),
@@ -68,7 +73,7 @@ class AboutUsPage extends StatelessWidget {
                 Text(
                   "LISTABLES",
                   style: GoogleFonts.poppins(
-                    color: Colors.white,
+                    color: textColor,
                     fontSize: 36,
                     fontWeight: FontWeight.bold,
                     letterSpacing: 8,
@@ -78,13 +83,13 @@ class AboutUsPage extends StatelessWidget {
                 Container(width: 50, height: 3, color: primaryRed),
 
                 // BRAND STORY TEXT
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 40, vertical: 30),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 30),
                   child: Text(
                     "Listables is more than an app; it's a premium e-commerce ecosystem designed for.... . We bridge the gap between luxury design and high-performance mobile engineering.",
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white70,
+                      color: secondaryTextColor,
                       height: 1.8,
                       fontSize: 16,
                       letterSpacing: 0.5,
@@ -98,12 +103,14 @@ class AboutUsPage extends StatelessWidget {
                   child: Row(
                     children: [
                       _buildInfoCard(
+                        context,
                         "Our Mission",
                         "Redefining the digital marketplace for online users.",
                         Icons.auto_awesome,
                       ),
                       const SizedBox(width: 15),
                       _buildInfoCard(
+                        context,
                         "Our Vision",
                         "Becoming the #1 hub for ecommerce  in Egypt.",
                         Icons.visibility,
@@ -114,25 +121,6 @@ class AboutUsPage extends StatelessWidget {
 
                 const SizedBox(height: 40),
 
-                // 4. THE TEAM HIGHLIGHT
-                Text(
-                  "DEVELOPED BY",
-                  style: GoogleFonts.inter(
-                    color: Colors.white54,
-                    letterSpacing: 2,
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 15),
-                Text(
-                  "Mai & Team",
-                  style: GoogleFonts.poppins(
-                    color: primaryRed,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
 
                 const SizedBox(height: 60),
 
@@ -143,22 +131,22 @@ class AboutUsPage extends StatelessWidget {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.05),
+                    color: AppThemeColors.elevatedSurface(context),
                     borderRadius: BorderRadius.circular(50),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.school_outlined,
-                        color: Colors.white54,
+                        color: secondaryTextColor,
                         size: 18,
                       ),
                       const SizedBox(width: 10),
                       Text(
                         "AAST Graduation Project 2026",
                         style: GoogleFonts.inter(
-                          color: Colors.white54,
+                          color: secondaryTextColor,
                           fontSize: 12,
                         ),
                       ),
@@ -175,7 +163,7 @@ class AboutUsPage extends StatelessWidget {
             top: 50,
             left: 20,
             child: IconButton(
-              icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+              icon: Icon(Icons.arrow_back_ios, color: textColor),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -184,15 +172,18 @@ class AboutUsPage extends StatelessWidget {
     );
   }
 
-  Widget _buildInfoCard(String title, String desc, IconData icon) {
+  Widget _buildInfoCard(BuildContext context, String title, String desc, IconData icon) {
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryTextColor = AppThemeColors.textSecondary(context);
+
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(20),
         height: 180,
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.03),
+          color: AppThemeColors.surface(context),
           borderRadius: BorderRadius.circular(25),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+          border: Border.all(color: AppThemeColors.border(context)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,8 +192,8 @@ class AboutUsPage extends StatelessWidget {
             const Spacer(),
             Text(
               title,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: textColor,
                 fontWeight: FontWeight.bold,
                 fontSize: 16,
               ),
@@ -210,8 +201,8 @@ class AboutUsPage extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               desc,
-              style: const TextStyle(
-                color: Colors.white54,
+              style: TextStyle(
+                color: secondaryTextColor,
                 fontSize: 12,
                 height: 1.4,
               ),

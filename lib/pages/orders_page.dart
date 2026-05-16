@@ -9,17 +9,26 @@ class OrderModel {
   final String status;
   final List<String> productTitles;
   final String? customerName;
+  final String? customerEmail;
+  final String? phoneNumber;
+  final String? company;
   final String? shippingAddress;
+  final String? addressLine2;
   final String? city;
   final String? state;
   final String? zipcode;
   final String? paymentMethod;
+  final String currency;
+  final double subtotalPrice;
+  final double shippingPrice;
   final String? cancelledByRole;
   final String? adminCancelReason;
   final String? cardHolderName;
   final String? cardLast4;
   final String? cardExpiry;
   final DateTime createdAt;
+  final String? sellerId;
+  final bool hasReview;
 
   const OrderModel({
     required this.id,
@@ -27,21 +36,32 @@ class OrderModel {
     required this.status,
     required this.productTitles,
     required this.customerName,
+    required this.customerEmail,
+    required this.phoneNumber,
+    required this.company,
     required this.shippingAddress,
+    required this.addressLine2,
     required this.city,
     required this.state,
     required this.zipcode,
     required this.paymentMethod,
+    required this.currency,
+    required this.subtotalPrice,
+    required this.shippingPrice,
     required this.cancelledByRole,
     required this.adminCancelReason,
     required this.cardHolderName,
     required this.cardLast4,
     required this.cardExpiry,
     required this.createdAt,
+    required this.sellerId,
+    required this.hasReview,
   });
 
   factory OrderModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['total_price'];
+    final rawSubtotal = map['subtotal_price'];
+    final rawShipping = map['shipping_price'];
     final productTitles = (map['product_titles'] as List?)
             ?.map((title) => title.toString().trim())
             .where((title) => title.isNotEmpty)
@@ -56,17 +76,30 @@ class OrderModel {
       status: (map['status'] ?? 'pending').toString(),
       productTitles: productTitles,
       customerName: map['customer_name']?.toString(),
+      customerEmail: map['customer_email']?.toString(),
+      phoneNumber: map['phone_number']?.toString(),
+      company: map['company']?.toString(),
       shippingAddress: map['shipping_address']?.toString(),
+      addressLine2: map['address_line2']?.toString(),
       city: map['city']?.toString(),
       state: map['state']?.toString(),
       zipcode: map['zipcode']?.toString(),
       paymentMethod: map['payment_method']?.toString(),
+      currency: (map['currency'] ?? 'EGP').toString(),
+      subtotalPrice: rawSubtotal is num
+          ? rawSubtotal.toDouble()
+          : double.tryParse('${rawSubtotal ?? rawPrice ?? 0}') ?? 0,
+      shippingPrice: rawShipping is num
+          ? rawShipping.toDouble()
+          : double.tryParse('${rawShipping ?? 0}') ?? 0,
       cancelledByRole: map['cancelled_by_role']?.toString(),
       adminCancelReason: map['admin_cancel_reason']?.toString(),
       cardHolderName: map['card_holder_name']?.toString(),
       cardLast4: map['card_last4']?.toString(),
       cardExpiry: map['card_expiry']?.toString(),
       createdAt: DateTime.tryParse('${map['created_at']}') ?? DateTime.now(),
+      sellerId: map['seller_id']?.toString(),
+      hasReview: map['has_review'] == true,
     );
   }
 }
@@ -150,7 +183,7 @@ class _OrdersPageState extends State<OrdersPage> {
       final response = await supabase
           .from('orders')
           .select(
-            'id, total_price, status, customer_name, shipping_address, city, state, zipcode, payment_method, cancelled_by_role, admin_cancel_reason, card_holder_name, card_last4, card_expiry, created_at',
+            'id, total_price, subtotal_price, shipping_price, currency, status, customer_name, customer_email, phone_number, company, shipping_address, address_line2, city, state, zipcode, payment_method, cancelled_by_role, admin_cancel_reason, card_holder_name, card_last4, card_expiry, created_at',
           )
           .eq('buyer_id', user.id)
           .order('created_at', ascending: false);
@@ -165,12 +198,11 @@ class _OrdersPageState extends State<OrdersPage> {
           .toList();
 
       final productTitlesByOrderId = <int, List<String>>{};
+      final sellerByOrderId = <int, String?>{};
       if (orderIds.isNotEmpty) {
         final orderItemsResponse = await supabase
-          .from('order_items')
-          .select(
-            'order_id, products(title)',
-          )
+            .from('order_items')
+            .select('order_id, product_name, seller_id, products(title)')
             .inFilter('order_id', orderIds)
             .order('order_id', ascending: false);
 
@@ -179,10 +211,16 @@ class _OrdersPageState extends State<OrdersPage> {
           final orderId = item['order_id'] as int?;
           if (orderId == null) continue;
 
+          final sellerId = item['seller_id']?.toString();
+          sellerByOrderId.putIfAbsent(orderId, () => sellerId);
+
           final product =
               item['products'] as Map<String, dynamic>? ??
               const <String, dynamic>{};
-          final productTitle = (product['title'] ?? '').toString().trim();
+          final productTitle =
+              (item['product_name'] ?? product['title'] ?? '')
+                  .toString()
+                  .trim();
           if (productTitle.isEmpty) continue;
 
           final titles = productTitlesByOrderId.putIfAbsent(
@@ -195,10 +233,27 @@ class _OrdersPageState extends State<OrdersPage> {
         }
       }
 
+      final reviewedOrderIds = <int>{};
+      if (orderIds.isNotEmpty) {
+        final reviewsResponse = await supabase
+            .from('reviews')
+            .select('order_id')
+            .eq('buyer_id', user.id)
+            .inFilter('order_id', orderIds);
+        for (final item in reviewsResponse as List) {
+          final orderId = (item as Map)['order_id'] as int?;
+          if (orderId != null) {
+            reviewedOrderIds.add(orderId);
+          }
+        }
+      }
+
       final loadedOrders = orders
           .map((item) {
             item['product_titles'] =
                 productTitlesByOrderId[item['id']] ?? const <String>[];
+            item['seller_id'] = sellerByOrderId[item['id']];
+            item['has_review'] = reviewedOrderIds.contains(item['id']);
             return OrderModel.fromMap(item);
           })
           .toList();
@@ -221,11 +276,21 @@ class _OrdersPageState extends State<OrdersPage> {
     }
   }
 
-  String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+  String _formatPrice(OrderModel order, double price) =>
+      '${order.currency} ${price.toStringAsFixed(0)}';
+
+  String _fullAddress(OrderModel order) {
+    final parts = [
+      order.shippingAddress?.trim(),
+      order.addressLine2?.trim(),
+    ].where((part) => part != null && part.isNotEmpty).cast<String>().toList();
+    return parts.isEmpty ? 'Not set' : parts.join(', ');
+  }
 
   Color _statusColor(String status) {
     switch (status) {
       case 'delivered':
+      case 'completed':
         return Colors.green;
       case 'cancelled':
         return Colors.red;
@@ -235,6 +300,216 @@ class _OrdersPageState extends State<OrdersPage> {
         return Colors.orange;
       default:
         return Colors.grey;
+    }
+  }
+
+  bool _canCancel(OrderModel order) =>
+      order.status != 'delivered' &&
+      order.status != 'completed' &&
+      order.status != 'cancelled';
+
+  Future<void> _cancelOrder(OrderModel order) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Cancel order?'),
+          content: Text('Cancel order #${order.id}? This cannot be undone.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Keep'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(backgroundColor: primaryRed),
+              child: const Text(
+                'Cancel Order',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await supabase.from('orders').update({
+        'status': 'cancelled',
+        'cancelled_by_role': 'buyer',
+        'admin_cancel_reason': null,
+      }).eq('id', order.id);
+      await _loadOrders();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order cancelled')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to cancel order: $e')),
+      );
+    }
+  }
+
+  Future<void> _messageSeller(OrderModel order) async {
+    final user = supabase.auth.currentUser;
+    final sellerId = order.sellerId?.trim();
+    if (user == null || sellerId == null || sellerId.isEmpty) return;
+
+    try {
+      final sellerProfile = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', sellerId)
+          .maybeSingle();
+      final sellerName =
+          (sellerProfile?['full_name'] ?? sellerProfile?['email'] ?? 'Seller')
+              .toString()
+              .trim();
+
+      final existingConversation = await supabase
+          .from('conversations')
+          .select('id')
+          .eq('buyer_id', user.id)
+          .eq('seller_id', sellerId)
+          .maybeSingle();
+
+      int conversationId;
+      if (existingConversation != null) {
+        conversationId = existingConversation['id'] as int;
+      } else {
+        final buyerProfile = await supabase
+            .from('profiles')
+            .select('full_name, email')
+            .eq('id', user.id)
+            .maybeSingle();
+        final buyerName =
+            (buyerProfile?['full_name'] ?? buyerProfile?['email'] ?? 'Buyer')
+                .toString()
+                .trim();
+
+        final inserted = await supabase
+            .from('conversations')
+            .insert({
+              'buyer_id': user.id,
+              'seller_id': sellerId,
+              'buyer_name': buyerName,
+              'seller_name': sellerName,
+            })
+            .select('id')
+            .single();
+        conversationId = inserted['id'] as int;
+      }
+
+      if (!mounted) return;
+      await Navigator.pushNamed(
+        context,
+        '/chat',
+        arguments: {
+          'conversationId': conversationId,
+          'otherUserId': sellerId,
+          'otherUserName': sellerName.isEmpty ? 'Seller' : sellerName,
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to open seller chat: $e')),
+      );
+    }
+  }
+
+  Future<void> _leaveReview(OrderModel order) async {
+    final user = supabase.auth.currentUser;
+    final sellerId = order.sellerId?.trim();
+    if (user == null || sellerId == null || sellerId.isEmpty) return;
+
+    int rating = 5;
+    final commentController = TextEditingController();
+
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              return AlertDialog(
+                title: Text('Review Order #${order.id}'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: List.generate(
+                        5,
+                        (index) => IconButton(
+                          onPressed: () {
+                            setDialogState(() {
+                              rating = index + 1;
+                            });
+                          },
+                          icon: Icon(
+                            index < rating ? Icons.star : Icons.star_border,
+                            color: Colors.amber,
+                          ),
+                        ),
+                      ),
+                    ),
+                    TextField(
+                      controller: commentController,
+                      maxLines: 4,
+                      decoration: const InputDecoration(
+                        labelText: 'Comment',
+                        hintText: 'How was your experience?',
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(dialogContext, false),
+                    child: const Text('Close'),
+                  ),
+                  ElevatedButton(
+                    onPressed: () => Navigator.pop(dialogContext, true),
+                    style: ElevatedButton.styleFrom(backgroundColor: primaryRed),
+                    child: const Text(
+                      'Submit',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (confirmed != true) return;
+
+      await supabase.from('reviews').insert({
+        'order_id': order.id,
+        'seller_id': sellerId,
+        'buyer_id': user.id,
+        'rating': rating,
+        'comment': commentController.text.trim(),
+      });
+
+      await _loadOrders();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Review submitted. Thank you!')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to submit review: $e')),
+      );
+    } finally {
+      commentController.dispose();
     }
   }
 
@@ -362,7 +637,7 @@ class _OrdersPageState extends State<OrdersPage> {
                 const SizedBox(height: 10),
               ],
               Text(
-                _formatPrice(order.totalPrice),
+                _formatPrice(order, order.totalPrice),
                 style: GoogleFonts.poppins(
                   color: primaryRed,
                   fontWeight: FontWeight.bold,
@@ -373,6 +648,20 @@ class _OrdersPageState extends State<OrdersPage> {
                 const SizedBox(height: 8),
                 Text(
                   'Name: ${order.customerName}',
+                  style: GoogleFonts.inter(color: textColor),
+                ),
+              ],
+              if (order.customerEmail?.isNotEmpty == true) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Email: ${order.customerEmail}',
+                  style: GoogleFonts.inter(color: textColor),
+                ),
+              ],
+              if (order.phoneNumber?.isNotEmpty == true) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Phone: ${order.phoneNumber}',
                   style: GoogleFonts.inter(color: textColor),
                 ),
               ],
@@ -419,11 +708,20 @@ class _OrdersPageState extends State<OrdersPage> {
               ],
               const SizedBox(height: 4),
               Text(
-                'Address: ${order.shippingAddress?.isNotEmpty == true ? order.shippingAddress : 'Not set'}',
+                'Address: ${_fullAddress(order)}',
                 style: GoogleFonts.inter(
                   color: AppThemeColors.textSecondary(context),
                 ),
               ),
+              if (order.shippingPrice > 0) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Shipping: ${_formatPrice(order, order.shippingPrice)}',
+                  style: GoogleFonts.inter(
+                    color: AppThemeColors.textSecondary(context),
+                  ),
+                ),
+              ],
               if (order.city?.isNotEmpty == true ||
                   order.state?.isNotEmpty == true ||
                   order.zipcode?.isNotEmpty == true) ...[
@@ -439,12 +737,101 @@ class _OrdersPageState extends State<OrdersPage> {
                   ),
                 ),
               ],
-              const SizedBox(height: 6),
-              Text(
-                'Created: ${order.createdAt.toLocal().toString().split('.').first}',
-                style: GoogleFonts.inter(
-                  color: AppThemeColors.textMuted(context),
-                ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.pushNamed(
+                      context,
+                      '/escrow',
+                      arguments: {'orderId': order.id, 'role': 'buyer'},
+                    ),
+                    icon: const Icon(
+                      Icons.check_circle_outline,
+                      color: Colors.white,
+                      size: 18,
+                    ),
+                    label: Text(
+                      (order.status == 'delivered' ||
+                              order.status == 'completed')
+                          ? 'View & Review'
+                          : 'View & Confirm',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.green,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                  if (order.sellerId != null && order.sellerId!.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: () => _messageSeller(order),
+                      icon: const Icon(Icons.chat_bubble_outline, size: 18),
+                      label: const Text('Message Seller'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  if (_canCancel(order))
+                    OutlinedButton.icon(
+                      onPressed: () => _cancelOrder(order),
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text('Cancel Order'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: primaryRed,
+                        side: const BorderSide(color: primaryRed),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  if ((order.status == 'delivered' ||
+                          order.status == 'completed') &&
+                      !order.hasReview &&
+                      order.sellerId != null &&
+                      order.sellerId!.isNotEmpty)
+                    OutlinedButton.icon(
+                      onPressed: () => _leaveReview(order),
+                      icon: const Icon(Icons.rate_review_outlined, size: 18),
+                      label: const Text('Leave Review'),
+                      style: OutlinedButton.styleFrom(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  if (order.hasReview) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppThemeColors.surface(context),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: AppThemeColors.border(context),
+                        ),
+                      ),
+                      child: Text(
+                        'Review submitted',
+                        style: GoogleFonts.inter(
+                          color: AppThemeColors.textSecondary(context),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ],
           ),

@@ -18,17 +18,95 @@ class _SellerHomePageState extends State<SellerHomePage> {
   final supabase = Supabase.instance.client;
 
   bool _isLoading = true;
+  bool _isSwitchingMode = false;
   int _productCount = 0;
   int _activeCount = 0;
-  int _pendingOffers = 0;
+  int _unreadNotifications = 0;
+  int _unreadMessages = 0;
+  RealtimeChannel? _notificationsChannel;
+  RealtimeChannel? _messagesChannel;
 
   @override
   void initState() {
     super.initState();
     _loadStats();
+    _setupNotifications();
+  }
+
+  @override
+  void dispose() {
+    _notificationsChannel?.unsubscribe();
+    _messagesChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupNotifications() {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    _loadUnreadCount();
+    _loadUnreadMessagesCount();
+
+    _notificationsChannel = supabase
+        .channel('public:notifications:seller')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          callback: (_) {
+            if (mounted) _loadUnreadCount();
+          },
+        )
+        .subscribe();
+
+    _messagesChannel = supabase
+        .channel('public:messages:seller')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'messages',
+          callback: (_) {
+            if (mounted) _loadUnreadMessagesCount();
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadUnreadMessagesCount() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final res = await supabase
+          .from('messages')
+          .select('id')
+          .eq('receiver_id', user.id)
+          .isFilter('read_at', null);
+      if (mounted) {
+        setState(() {
+          _unreadMessages = (res as List).length;
+        });
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final res = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('is_read', false);
+      if (mounted) {
+        setState(() {
+          _unreadNotifications = (res as List).length;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadStats() async {
+    // ... (rest of the method remains the same)
     try {
       final user = supabase.auth.currentUser;
       if (user == null) {
@@ -42,12 +120,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
           .select('id, status')
           .eq('seller_id', user.id);
 
-      final offersResponse = await supabase
-          .from('offers')
-          .select('id')
-          .eq('seller_id', user.id)
-          .eq('status', 'pending');
-
       final products = (productsResponse as List)
           .map((item) => Map<String, dynamic>.from(item as Map))
           .toList();
@@ -56,7 +128,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
       setState(() {
         _productCount = products.length;
         _activeCount = products.where((item) => item['status'] == 'active').length;
-        _pendingOffers = (offersResponse as List).length;
         _isLoading = false;
       });
     } catch (_) {
@@ -70,7 +141,10 @@ class _SellerHomePageState extends State<SellerHomePage> {
   Future<void> _openPage(String routeName) async {
     await Navigator.pushNamed(context, routeName);
     await _loadStats();
+    await _loadUnreadCount();
+    await _loadUnreadMessagesCount();
   }
+
 
   @override
   Widget build(BuildContext context) {
@@ -92,28 +166,25 @@ class _SellerHomePageState extends State<SellerHomePage> {
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () {
-              AppModeService.instance.setMode(AppMode.buyer);
-              Navigator.pushReplacementNamed(context, '/home');
-            },
-            child: Text(
-              'Buy Mode',
-              style: GoogleFonts.inter(
-                color: primaryRed,
-                fontWeight: FontWeight.w700,
-              ),
+          IconButton(
+            icon: Badge(
+              isLabelVisible: _unreadNotifications > 0,
+              label: Text('$_unreadNotifications'),
+              backgroundColor: primaryRed,
+              child: Icon(Icons.notifications_outlined, color: textColor),
             ),
+            onPressed: () => _openPage('/notifications'),
           ),
           const SizedBox(width: 8),
         ],
       ),
+      extendBody: true,
       body: RefreshIndicator(
         onRefresh: _loadStats,
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : ListView(
-                padding: const EdgeInsets.all(24),
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 120),
                 children: [
                   Container(
                     padding: const EdgeInsets.all(24),
@@ -134,7 +205,7 @@ class _SellerHomePageState extends State<SellerHomePage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          'Add products, review received offers, and stay in touch with buyers.',
+                          'Add products and stay in touch with buyers.',
                           style: GoogleFonts.inter(
                             color: Colors.white70,
                             height: 1.5,
@@ -157,14 +228,7 @@ class _SellerHomePageState extends State<SellerHomePage> {
                         child: _StatCard(
                           label: 'Active',
                           value: '$_activeCount',
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _StatCard(
-                          label: 'Offers',
-                          value: '$_pendingOffers',
-                          highlight: true,
+                          highlight: false,
                         ),
                       ),
                     ],
@@ -189,12 +253,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
                     onTap: () => _openPage('/seller_orders'),
                   ),
                   _ActionTile(
-                    title: 'Received Offers',
-                    subtitle: 'Accept or reject buyer offers on your products.',
-                    icon: Icons.local_offer_outlined,
-                    onTap: () => _openPage('/seller_offers'),
-                  ),
-                  _ActionTile(
                     title: 'Profile',
                     subtitle: 'Update your profile information and account settings.',
                     icon: Icons.person_outline,
@@ -203,6 +261,56 @@ class _SellerHomePageState extends State<SellerHomePage> {
                 ],
               ),
       ),
+      bottomNavigationBar: _buildBottomNav(),
+    );
+  }
+
+  Widget _buildBottomNav() {
+    final isDark = AppThemeColors.isDark(context);
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 0, 20, 25),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1B1D24) : Colors.black,
+        borderRadius: BorderRadius.circular(30),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.3),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _navIcon(Icons.dashboard_outlined, true),
+          _navIconWithBadge(Icons.notifications_none, false, _unreadNotifications, () => _openPage('/notifications')),
+          _navIconWithBadge(Icons.chat_bubble_outline, false, _unreadMessages, () => _openPage('/messages')),
+          _navIcon(Icons.person_outline, false, onTap: () => _openPage('/profile')),
+        ],
+      ),
+    );
+  }
+
+  Widget _navIcon(IconData icon, bool isActive, {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Icon(
+        icon,
+        color: isActive ? primaryRed : Colors.white60,
+        size: 28,
+      ),
+    );
+  }
+
+  Widget _navIconWithBadge(IconData icon, bool isActive, int count, VoidCallback onTap) {
+    return Badge(
+      isLabelVisible: count > 0,
+      label: Text('$count'),
+      backgroundColor: primaryRed,
+      child: _navIcon(icon, isActive, onTap: onTap),
     );
   }
 }

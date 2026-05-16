@@ -14,6 +14,16 @@ IconData iconFromString(String? iconName) {
       return Icons.checkroom;
     case 'devices':
       return Icons.devices;
+    case 'male':
+      return Icons.male;
+    case 'female':
+      return Icons.female;
+    case 'child_care':
+      return Icons.child_care;
+    case 'watch':
+      return Icons.watch;
+    case 'more_horiz':
+      return Icons.more_horiz;
     case 'chair':
       return Icons.chair;
     case 'spa':

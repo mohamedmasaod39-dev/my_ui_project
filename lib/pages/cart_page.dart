@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/checkout_info_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'index_page.dart';
@@ -97,15 +98,94 @@ class _CartPageState extends State<CartPage> {
       await _loadCart();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Item removed from cart')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Item removed from cart')));
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Failed to remove item')));
+    }
+  }
+
+  Future<void> _updateCartQuantity(CartItemModel item, int quantity) async {
+    if (item.product.stockQty <= 0) return;
+    final clampedQuantity = quantity.clamp(1, item.product.stockQty).toInt();
+    if (clampedQuantity == item.quantity) return;
+
+    try {
+      await supabase
+          .from('cart_items')
+          .update({'quantity': clampedQuantity})
+          .eq('id', item.id);
+      await _loadCart();
+    } catch (_) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to remove item')),
+        const SnackBar(content: Text('Failed to update quantity')),
       );
     }
+  }
+
+  Future<bool> _validateCartStock(String userId) async {
+    final unavailableItems = _cartItems
+        .where((item) => !item.product.isBuyable)
+        .toList();
+    if (unavailableItems.isNotEmpty) {
+      await supabase
+          .from('cart_items')
+          .delete()
+          .inFilter('id', unavailableItems.map((item) => item.id).toList());
+      await _loadCart();
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Unavailable products were removed from your cart'),
+        ),
+      );
+      return false;
+    }
+
+    final overStockItems = _cartItems
+        .where((item) => item.quantity > item.product.stockQty)
+        .toList();
+    if (overStockItems.isNotEmpty) {
+      for (final item in overStockItems) {
+        await supabase
+            .from('cart_items')
+            .update({'quantity': item.product.stockQty})
+            .eq('id', item.id);
+      }
+      await _loadCart();
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cart quantities were adjusted to available stock'),
+        ),
+      );
+      return false;
+    }
+
+    final ownItems = _cartItems
+        .where((item) => item.product.isOwnedBy(userId))
+        .toList();
+    if (ownItems.isNotEmpty) {
+      await supabase
+          .from('cart_items')
+          .delete()
+          .inFilter('id', ownItems.map((item) => item.id).toList());
+      await _loadCart();
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Your own product was removed from the cart'),
+        ),
+      );
+      return false;
+    }
+
+    return true;
   }
 
   double get _subtotal {
@@ -116,6 +196,20 @@ class _CartPageState extends State<CartPage> {
     return total;
   }
 
+  double get _shippingFee {
+    // Website Parity: On the cart page, shipping is displayed as "Free" (0)
+    // The actual fee is calculated and added only at the final checkout step.
+    return 0;
+  }
+
+  double _calculateActualShipping(double subtotal) {
+    if (subtotal <= 0) return 0;
+    final fee = subtotal * 0.01;
+    return fee < 100 ? 100 : fee; // max(100, subtotal * 0.01)
+  }
+
+  double get _total => _subtotal + _shippingFee;
+
   String _formatPrice(double price) {
     return 'EGP ${price.toStringAsFixed(0)}';
   }
@@ -125,10 +219,9 @@ class _CartPageState extends State<CartPage> {
 
     for (final item in _cartItems) {
       final sellerId = item.product.sellerId?.trim();
-      final sellerKey =
-          sellerId != null && sellerId.isNotEmpty
-              ? sellerId
-              : 'unknown-seller';
+      final sellerKey = sellerId != null && sellerId.isNotEmpty
+          ? sellerId
+          : 'unknown-seller';
       grouped.putIfAbsent(sellerKey, () => []).add(item);
     }
 
@@ -141,24 +234,55 @@ class _CartPageState extends State<CartPage> {
     final user = supabase.auth.currentUser;
     if (user == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login first')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please login first')));
       return;
     }
 
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final addressController = TextEditingController();
-    final cityController = TextEditingController();
-    final stateController = TextEditingController();
-    final zipController = TextEditingController();
-    final cardNameController = TextEditingController();
+    await _loadCart();
+    if (!mounted || _cartItems.isEmpty) return;
+
+    final cartIsValid = await _validateCartStock(user.id);
+    if (!cartIsValid) {
+      return;
+    }
+
+    final savedCheckout = await CheckoutInfoService.instance.load(user.id);
+    if (!mounted) return;
+    final nameController = TextEditingController(text: savedCheckout.fullName);
+    final phoneController = TextEditingController(
+      text: savedCheckout.phoneNumber,
+    );
+    final emailController = TextEditingController(
+      text: savedCheckout.email.isNotEmpty
+          ? savedCheckout.email
+          : user.email ?? '',
+    );
+    final companyController = TextEditingController(
+      text: savedCheckout.company,
+    );
+    final addressController = TextEditingController(
+      text: savedCheckout.address,
+    );
+    final addressLine2Controller = TextEditingController(
+      text: savedCheckout.addressLine2,
+    );
+    final cityController = TextEditingController(text: savedCheckout.city);
+    final stateController = TextEditingController(text: savedCheckout.state);
+    final zipController = TextEditingController(text: savedCheckout.zipCode);
+    final cardNameController = TextEditingController(
+      text: savedCheckout.cardHolderName,
+    );
     final cardNumberController = TextEditingController();
-    final expDateController = TextEditingController();
+    final expDateController = TextEditingController(
+      text: savedCheckout.cardExpiry,
+    );
     final cvcController = TextEditingController();
 
-    String paymentMethod = 'Card';
+    String paymentMethod = savedCheckout.paymentMethod.isNotEmpty
+        ? savedCheckout.paymentMethod
+        : 'Card';
     int checkoutStep = 0;
 
     final confirmed = await showDialog<bool>(
@@ -240,8 +364,24 @@ class _CartPageState extends State<CartPage> {
                           ),
                           const SizedBox(height: 16),
                           _buildCheckoutField(
+                            controller: emailController,
+                            label: 'Email',
+                            keyboardType: TextInputType.emailAddress,
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCheckoutField(
+                            controller: companyController,
+                            label: 'Company (optional)',
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCheckoutField(
                             controller: addressController,
-                            label: 'Shipping Address',
+                            label: 'Street Address',
+                          ),
+                          const SizedBox(height: 16),
+                          _buildCheckoutField(
+                            controller: addressLine2Controller,
+                            label: 'Apartment, floor, etc. (optional)',
                           ),
                           const SizedBox(height: 16),
                           Row(
@@ -292,6 +432,18 @@ class _CartPageState extends State<CartPage> {
                           ),
                         ],
                         if (isPaymentStep) ...[
+                          if (savedCheckout.hasSavedCard) ...[
+                            Text(
+                              'Saved card ending ${savedCheckout.cardLast4}',
+                              style: GoogleFonts.inter(
+                                color: AppThemeColors.textSecondary(
+                                  dialogContext,
+                                ),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           _buildCheckoutField(
                             controller: cardNameController,
                             label: 'Name on Card',
@@ -322,6 +474,10 @@ class _CartPageState extends State<CartPage> {
                                     controller: cvcController,
                                     label: 'CVC',
                                     keyboardType: TextInputType.number,
+                                    inputFormatters: [
+                                      FilteringTextInputFormatter.digitsOnly,
+                                      LengthLimitingTextInputFormatter(3),
+                                    ],
                                   ),
                                 ),
                               ],
@@ -336,6 +492,7 @@ class _CartPageState extends State<CartPage> {
                               if (isShippingStep) {
                                 if (nameController.text.trim().isEmpty ||
                                     phoneController.text.trim().isEmpty ||
+                                    emailController.text.trim().isEmpty ||
                                     addressController.text.trim().isEmpty ||
                                     cityController.text.trim().isEmpty ||
                                     stateController.text.trim().isEmpty ||
@@ -358,9 +515,14 @@ class _CartPageState extends State<CartPage> {
 
                               if (paymentMethod == 'Card' &&
                                   (cardNameController.text.trim().isEmpty ||
-                                      cardNumberController.text.trim().isEmpty ||
                                       expDateController.text.trim().isEmpty ||
-                                      cvcController.text.trim().isEmpty)) {
+                                      (!savedCheckout.hasSavedCard &&
+                                          (cardNumberController.text
+                                                  .trim()
+                                                  .isEmpty ||
+                                              cvcController.text
+                                                  .trim()
+                                                  .isEmpty)))) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
@@ -374,7 +536,8 @@ class _CartPageState extends State<CartPage> {
                               Navigator.of(dialogContext).pop(true);
                             },
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppThemeColors.isDark(dialogContext)
+                              backgroundColor:
+                                  AppThemeColors.isDark(dialogContext)
                                   ? Colors.white
                                   : Colors.black,
                               foregroundColor: Colors.white,
@@ -408,55 +571,106 @@ class _CartPageState extends State<CartPage> {
 
     if (confirmed != true) return;
 
+    await _loadCart();
+    if (!mounted || _cartItems.isEmpty) return;
+    final latestCartIsValid = await _validateCartStock(user.id);
+    if (!latestCartIsValid) return;
+
     setState(() {
       _isCheckingOut = true;
     });
     final fullName = nameController.text.trim();
     final phoneNumber = phoneController.text.trim();
+    final email = emailController.text.trim();
+    final company = companyController.text.trim();
     final address = addressController.text.trim();
+    final addressLine2 = addressLine2Controller.text.trim();
     final city = cityController.text.trim();
     final state = stateController.text.trim();
     final zipCode = zipController.text.trim();
     final cardHolderName = cardNameController.text.trim();
-    final cardDigits = cardNumberController.text.replaceAll(RegExp(r'[^0-9]'), '');
+    final cardDigits = cardNumberController.text.replaceAll(
+      RegExp(r'[^0-9]'),
+      '',
+    );
     final cardLast4 = cardDigits.length >= 4
         ? cardDigits.substring(cardDigits.length - 4)
         : cardDigits;
     final cardExpiry = expDateController.text.trim();
+    final effectiveCardLast4 = cardLast4.isNotEmpty
+        ? cardLast4
+        : savedCheckout.cardLast4;
 
     try {
       for (final item in _cartItems) {
         if (item.product.sellerId == null || item.product.sellerId!.isEmpty) {
-          throw Exception('One or more products are missing seller information.');
+          throw Exception(
+            'One or more products are missing seller information.',
+          );
+        }
+        if (item.product.isOwnedBy(user.id)) {
+          throw Exception('You cannot buy your own product.');
+        }
+        if (!item.product.isBuyable) {
+          throw Exception('${item.product.title} is out of stock.');
+        }
+        if (item.quantity > item.product.stockQty) {
+          throw Exception(
+            'Only ${item.product.stockQty} left for ${item.product.title}.',
+          );
         }
       }
 
       final createdOrderIds = <int>[];
       final groupedCartItems = _groupCartItemsBySeller();
 
+      final totalSubtotal = _subtotal;
+      final totalShipping = _calculateActualShipping(totalSubtotal);
+      int orderCount = 0;
+      double distributedShippingSum = 0;
+
       for (final sellerItems in groupedCartItems.values) {
+        orderCount++;
         final sellerTotal = sellerItems.fold<double>(
           0,
           (sum, item) => sum + (item.product.price * item.quantity),
         );
+        
+        // Distribute shipping proportionally
+        double sellerShipping;
+        if (orderCount == groupedCartItems.length) {
+          // Last seller gets the remainder to avoid rounding issues
+          sellerShipping = totalShipping - distributedShippingSum;
+        } else {
+          sellerShipping = (totalShipping * (sellerTotal / totalSubtotal));
+          distributedShippingSum += sellerShipping;
+        }
 
         final insertedOrder = await supabase
             .from('orders')
             .insert({
               'buyer_id': user.id,
               'seller_id': sellerItems.first.product.sellerId,
-              'total_price': sellerTotal,
+              'subtotal_price': sellerTotal,
+              'shipping_price': sellerShipping,
+              'total_price': sellerTotal + sellerShipping,
+              'currency': sellerItems.first.product.currency,
               'shipping_address': address,
+              'address_line2': addressLine2,
               'phone_number': phoneNumber,
+              'customer_email': email,
+              'company': company,
               'payment_method': paymentMethod,
               'customer_name': fullName,
               'city': city,
               'state': state,
               'zipcode': zipCode,
-              'card_holder_name':
-                  paymentMethod == 'Card' ? cardHolderName : null,
-              'card_last4': paymentMethod == 'Card' && cardLast4.isNotEmpty
-                  ? cardLast4
+              'card_holder_name': paymentMethod == 'Card'
+                  ? cardHolderName
+                  : null,
+              'card_last4':
+                  paymentMethod == 'Card' && effectiveCardLast4.isNotEmpty
+                  ? effectiveCardLast4
                   : null,
               'card_expiry': paymentMethod == 'Card' && cardExpiry.isNotEmpty
                   ? cardExpiry
@@ -476,24 +690,73 @@ class _CartPageState extends State<CartPage> {
                 'seller_id': item.product.sellerId,
                 'price': item.product.price,
                 'quantity': item.quantity,
+                'product_name': item.product.title,
+                'image_url': item.product.image,
+                'line_total_price': item.product.price * item.quantity,
+                'currency': item.product.currency,
               },
             )
             .toList();
 
         await supabase.from('order_items').insert(orderItems);
-        await supabase
-            .from('products')
-            .update({'status': 'sold'})
-            .inFilter(
-              'id',
-              sellerItems.map((item) => item.product.id).toSet().toList(),
-            );
+
+        // Notify seller about new order
+        try {
+          await supabase.from('notifications').insert({
+            'user_id': sellerItems.first.product.sellerId,
+            'sender_id': user.id,
+            'title': 'New Order Received',
+            'body': '$fullName placed an order for ${sellerItems.length} item(s).',
+            'type': 'order',
+            'data': {'order_id': orderId},
+          });
+        } catch (_) {}
+
+        // Notify Admins about new order
+        try {
+          final adminsResponse = await supabase
+              .from('profiles')
+              .select('id')
+              .eq('role', 'admin');
+          
+          final adminIds = (adminsResponse as List).map((a) => a['id']).toList();
+          
+          for (final adminId in adminIds) {
+            await supabase.from('notifications').insert({
+              'user_id': adminId,
+              'sender_id': user.id,
+              'title': 'New Order Placed',
+              'body': '$fullName placed a new order (#$orderId).',
+              'type': 'order',
+              'data': {'order_id': orderId},
+            });
+          }
+        } catch (_) {}
       }
 
-      await supabase.from('cart_items').delete().inFilter(
-        'id',
-        _cartItems.map((item) => item.id).toList(),
+      await CheckoutInfoService.instance.save(
+        user.id,
+        CheckoutInfo(
+          fullName: fullName,
+          phoneNumber: phoneNumber,
+          email: email,
+          company: company,
+          address: address,
+          addressLine2: addressLine2,
+          city: city,
+          state: state,
+          zipCode: zipCode,
+          paymentMethod: paymentMethod,
+          cardHolderName: cardHolderName,
+          cardLast4: effectiveCardLast4,
+          cardExpiry: cardExpiry,
+        ),
       );
+
+      await supabase
+          .from('cart_items')
+          .delete()
+          .inFilter('id', _cartItems.map((item) => item.id).toList());
 
       await _loadCart();
 
@@ -508,13 +771,16 @@ class _CartPageState extends State<CartPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Checkout failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Checkout failed: $e')));
     } finally {
       nameController.dispose();
       phoneController.dispose();
+      emailController.dispose();
+      companyController.dispose();
       addressController.dispose();
+      addressLine2Controller.dispose();
       cityController.dispose();
       stateController.dispose();
       zipController.dispose();
@@ -572,9 +838,9 @@ class _CartPageState extends State<CartPage> {
                         Colors.white70,
                       ),
                       _buildSummaryRow(
-                        "Delivery",
-                        "FREE",
-                        Colors.greenAccent,
+                        "Shipping",
+                        _shippingFee == 0 ? "Free" : _formatPrice(_shippingFee),
+                        Colors.white70,
                       ),
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 15),
@@ -589,11 +855,11 @@ class _CartPageState extends State<CartPage> {
                               Text(
                                 "Total Price",
                                 style: GoogleFonts.inter(
-                                  color: AppThemeColors.textMuted(context),
+                                  color: Colors.white70,
                                 ),
                               ),
                               Text(
-                                _formatPrice(_subtotal),
+                                _formatPrice(_total),
                                 style: GoogleFonts.poppins(
                                   color: AppThemeColors.textPrimary(context),
                                   fontSize: 24,
@@ -659,9 +925,7 @@ class _CartPageState extends State<CartPage> {
     final textColor = AppThemeColors.textPrimary(context);
 
     if (_isLoading) {
-      return const Center(
-        child: CircularProgressIndicator(),
-      );
+      return const Center(child: CircularProgressIndicator());
     }
 
     if (_errorMessage != null) {
@@ -707,11 +971,7 @@ class _CartPageState extends State<CartPage> {
               ),
             ),
             leading: IconButton(
-              icon: Icon(
-                Icons.arrow_back_ios_new,
-                color: textColor,
-                size: 20,
-              ),
+              icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
               onPressed: () => Navigator.pop(context),
             ),
           ),
@@ -754,11 +1014,7 @@ class _CartPageState extends State<CartPage> {
             ),
           ),
           leading: IconButton(
-            icon: Icon(
-              Icons.arrow_back_ios_new,
-              color: textColor,
-              size: 20,
-            ),
+            icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
             onPressed: () => Navigator.pop(context),
           ),
         ),
@@ -771,9 +1027,7 @@ class _CartPageState extends State<CartPage> {
             ),
           ),
         ),
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 250),
-        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 250)),
       ],
     );
   }
@@ -783,7 +1037,7 @@ class _CartPageState extends State<CartPage> {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 20),
-      height: 120,
+      height: 150,
       child: Row(
         children: [
           Container(
@@ -837,6 +1091,41 @@ class _CartPageState extends State<CartPage> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    _quantityButton(
+                      icon: Icons.remove,
+                      onTap: item.quantity <= 1
+                          ? null
+                          : () => _updateCartQuantity(item, item.quantity - 1),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        '${item.quantity}',
+                        style: GoogleFonts.poppins(
+                          color: AppThemeColors.textPrimary(context),
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    _quantityButton(
+                      icon: Icons.add,
+                      onTap: item.quantity >= product.stockQty
+                          ? null
+                          : () => _updateCartQuantity(item, item.quantity + 1),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Stock: ${product.stockQty}',
+                      style: GoogleFonts.inter(
+                        color: AppThemeColors.textSecondary(context),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ),
           ),
@@ -848,6 +1137,34 @@ class _CartPageState extends State<CartPage> {
             onPressed: () => _removeFromCart(item.id),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _quantityButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          color: onTap == null
+              ? AppThemeColors.surface(context)
+              : AppThemeColors.elevatedSurface(context),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppThemeColors.border(context)),
+        ),
+        child: Icon(
+          icon,
+          size: 16,
+          color: onTap == null
+              ? AppThemeColors.textMuted(context)
+              : AppThemeColors.textPrimary(context),
+        ),
       ),
     );
   }
@@ -888,7 +1205,9 @@ class _CartPageState extends State<CartPage> {
           return Expanded(
             child: Container(
               height: 1.6,
-              color: connectorActive ? textColor : AppThemeColors.border(context),
+              color: connectorActive
+                  ? textColor
+                  : AppThemeColors.border(context),
             ),
           );
         }

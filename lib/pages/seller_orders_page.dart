@@ -11,16 +11,22 @@ class SellerOrderModel {
     required this.quantity,
     required this.orderStatus,
     required this.customerName,
+    required this.customerEmail,
+    required this.phoneNumber,
     required this.shippingAddress,
+    required this.addressLine2,
     required this.city,
     required this.state,
     required this.zipcode,
     required this.paymentMethod,
+    required this.currency,
+    required this.lineTotalPrice,
     required this.cardHolderName,
     required this.cardLast4,
     required this.cardExpiry,
     required this.productTitle,
     required this.productImage,
+    required this.buyerId,
   });
 
   final int id;
@@ -29,19 +35,26 @@ class SellerOrderModel {
   final int quantity;
   final String orderStatus;
   final String customerName;
+  final String customerEmail;
+  final String phoneNumber;
   final String shippingAddress;
+  final String addressLine2;
   final String city;
   final String state;
   final String zipcode;
   final String paymentMethod;
+  final String currency;
+  final double lineTotalPrice;
   final String cardHolderName;
   final String cardLast4;
   final String cardExpiry;
   final String productTitle;
   final String? productImage;
+  final String buyerId;
 
   factory SellerOrderModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['price'];
+    final rawLineTotal = map['line_total_price'];
     final order = map['orders'] as Map<String, dynamic>?;
     final product = map['products'] as Map<String, dynamic>?;
 
@@ -54,16 +67,26 @@ class SellerOrderModel {
       quantity: map['quantity'] as int? ?? 1,
       orderStatus: (order?['status'] ?? 'pending').toString(),
       customerName: (order?['customer_name'] ?? '').toString(),
+      customerEmail: (order?['customer_email'] ?? '').toString(),
+      phoneNumber: (order?['phone_number'] ?? '').toString(),
       shippingAddress: (order?['shipping_address'] ?? '').toString(),
+      addressLine2: (order?['address_line2'] ?? '').toString(),
       city: (order?['city'] ?? '').toString(),
       state: (order?['state'] ?? '').toString(),
       zipcode: (order?['zipcode'] ?? '').toString(),
       paymentMethod: (order?['payment_method'] ?? 'Card').toString(),
+      currency: (map['currency'] ?? order?['currency'] ?? 'EGP').toString(),
+      lineTotalPrice: rawLineTotal is num
+          ? rawLineTotal.toDouble()
+          : double.tryParse('${rawLineTotal ?? 0}') ?? 0,
       cardHolderName: (order?['card_holder_name'] ?? '').toString(),
       cardLast4: (order?['card_last4'] ?? '').toString(),
       cardExpiry: (order?['card_expiry'] ?? '').toString(),
-      productTitle: (product?['title'] ?? 'Product').toString(),
-      productImage: product?['main_image_url']?.toString(),
+      productTitle: (map['product_name'] ?? product?['title'] ?? 'Product')
+          .toString(),
+      productImage:
+          (map['image_url'] ?? product?['main_image_url'])?.toString(),
+      buyerId: (order?['buyer_id'] ?? '').toString(),
     );
   }
 }
@@ -137,7 +160,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       final response = await supabase
           .from('order_items')
           .select(
-            'id, order_id, price, quantity, orders(status, customer_name, shipping_address, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry), products(title, main_image_url)',
+            'id, order_id, price, quantity, product_name, image_url, line_total_price, currency, orders(status, customer_name, customer_email, phone_number, shipping_address, address_line2, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry, currency, buyer_id), products(title, main_image_url)',
           )
           .eq('seller_id', user.id)
           .order('id', ascending: false);
@@ -164,7 +187,8 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
     }
   }
 
-  String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+  String _formatPrice(SellerOrderModel order, double price) =>
+      '${order.currency} ${price.toStringAsFixed(0)}';
 
   Color _statusColor(String status) {
     switch (status) {
@@ -201,6 +225,37 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
           .update({'status': newStatus})
           .eq('id', order.orderId);
 
+      if (newStatus == 'delivered') {
+        final orderItems = await supabase
+            .from('order_items')
+            .select('product_id, quantity')
+            .eq('order_id', order.orderId);
+
+        for (final item in orderItems) {
+          final productId = item['product_id'];
+          final qty = item['quantity'] as int;
+
+          final product = await supabase
+              .from('products')
+              .select('stock_qty')
+              .eq('id', productId)
+              .maybeSingle();
+
+          if (product != null) {
+            final currentStock = product['stock_qty'] as int;
+            final remainingStock = currentStock - qty;
+
+            await supabase
+                .from('products')
+                .update({
+                  'stock_qty': remainingStock < 0 ? 0 : remainingStock,
+                  'status': remainingStock <= 0 ? 'sold' : 'active',
+                })
+                .eq('id', productId);
+          }
+        }
+      }
+
       final refreshedOrderItem = await supabase
           .from('order_items')
           .select('orders(status)')
@@ -213,6 +268,17 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       if (refreshedStatus != newStatus) {
         throw Exception('Order status was not saved.');
       }
+
+      // Notify buyer
+      try {
+        await supabase.from('notifications').insert({
+          'user_id': order.buyerId,
+          'sender_id': supabase.auth.currentUser?.id,
+          'title': 'Order Updated',
+          'body': 'Your order for ${order.productTitle} is now $newStatus.',
+          'type': 'order',
+        });
+      } catch (_) {}
 
       await _loadOrders();
       if (!mounted) return;
@@ -363,7 +429,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                         ),
                         const SizedBox(height: 6),
                         Text(
-                          '${_formatPrice(order.price)} x ${order.quantity}',
+                          '${_formatPrice(order, order.price)} x ${order.quantity}',
                           style: GoogleFonts.poppins(
                             color: const Color(0xFFDB4444),
                             fontWeight: FontWeight.bold,
@@ -393,10 +459,32 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                             ),
                           ),
                         ],
+                        if (order.phoneNumber.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Phone: ${order.phoneNumber}',
+                            style: GoogleFonts.inter(
+                              color: AppThemeColors.textSecondary(context),
+                            ),
+                          ),
+                        ],
+                        if (order.customerEmail.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Email: ${order.customerEmail}',
+                            style: GoogleFonts.inter(
+                              color: AppThemeColors.textSecondary(context),
+                            ),
+                          ),
+                        ],
                         if (order.shippingAddress.trim().isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
-                            order.shippingAddress,
+                            [
+                              order.shippingAddress,
+                              if (order.addressLine2.trim().isNotEmpty)
+                                order.addressLine2,
+                            ].join(', '),
                             style: GoogleFonts.inter(
                               color: AppThemeColors.textSecondary(context),
                             ),
@@ -426,29 +514,40 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                   ),
                 ],
               ),
-              if (nextStatuses.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Wrap(
                   spacing: 10,
                   runSpacing: 10,
-                  children: nextStatuses
-                      .map(
-                        (status) => ElevatedButton(
-                          onPressed: () => _updateOrderStatus(order, status),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: status == 'cancelled'
-                                ? Colors.black
-                                : primaryRed,
-                            foregroundColor: Colors.white,
-                          ),
-                          child: Text(status.toUpperCase()),
+                  children: [
+                    ...nextStatuses.map(
+                      (status) => ElevatedButton(
+                        onPressed: () => _updateOrderStatus(order, status),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: status == 'cancelled'
+                              ? Colors.black
+                              : primaryRed,
+                          foregroundColor: Colors.white,
                         ),
-                      )
-                      .toList(),
+                        child: Text(status.toUpperCase()),
+                      ),
+                    ),
+                    ElevatedButton.icon(
+                      onPressed: () => Navigator.pushNamed(
+                        context,
+                        '/escrow',
+                        arguments: {'orderId': order.orderId, 'role': 'seller'},
+                      ),
+                      icon: const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text('CONFIRM SHIPMENT'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ],
                 ),
               ],
-            ],
-          ),
+            ),
         );
       },
     );

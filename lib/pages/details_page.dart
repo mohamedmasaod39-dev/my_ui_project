@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:my_ui_project/services/chat_identity_cache.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
+import 'package:my_ui_project/services/app_scaffold_messenger.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'index_page.dart';
 
@@ -16,21 +17,52 @@ class DetailsPage extends StatefulWidget {
 class _DetailsPageState extends State<DetailsPage> {
   static const Color primaryRed = Color(0xFFDB4444);
   final supabase = Supabase.instance.client;
-  final wishlistService = WishlistService.instance;
-  bool _isFavorite = false;
-  bool _isSubmittingOffer = false;
-  int? _syncedFavoriteProductId;
   Product? _product;
+  String _userRole = 'buyer';
+  final _wishlistService = WishlistService.instance;
 
   @override
   void initState() {
     super.initState();
-    wishlistService.favoriteIds.addListener(_onWishlistChanged);
+    _loadUserRole();
+    _wishlistService.favoriteIds.addListener(_onWishlistChanged);
+  }
+  Future<void> _loadUserRole() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final profile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (profile != null && mounted) {
+        setState(() {
+          _userRole = (profile['role'] ?? 'buyer').toString();
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _onWishlistChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<void> _toggleWishlist() async {
+    final product = _product;
+    if (product == null) return;
+    try {
+      await _wishlistService.toggle(product.id);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+      }
+    }
   }
 
   @override
   void dispose() {
-    wishlistService.favoriteIds.removeListener(_onWishlistChanged);
+    _wishlistService.favoriteIds.removeListener(_onWishlistChanged);
     super.dispose();
   }
 
@@ -43,32 +75,14 @@ class _DetailsPageState extends State<DetailsPage> {
     if (_product?.id == routeProduct.id) return;
 
     _product = routeProduct;
-    _ensureFavoriteState(routeProduct);
   }
 
   String _formatPrice(double price) {
-    return 'EGP ${price.toStringAsFixed(0)}';
+    final product = _product;
+    final currency = product?.currency ?? 'EGP';
+    return '$currency ${price.toStringAsFixed(0)}';
   }
 
-  Future<void> _syncFavoriteState(Product product) async {
-    await wishlistService.load();
-    if (!mounted) return;
-    setState(() {
-      _isFavorite = wishlistService.isFavorite(product.id);
-    });
-  }
-
-  void _onWishlistChanged() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  void _ensureFavoriteState(Product product) {
-    if (_syncedFavoriteProductId == product.id) return;
-    _syncedFavoriteProductId = product.id;
-    _syncFavoriteState(product);
-  }
 
   String? _normalizeUserId(String? value) {
     final normalized = value?.trim();
@@ -78,45 +92,73 @@ class _DetailsPageState extends State<DetailsPage> {
     return normalized;
   }
 
-  Future<void> _toggleFavorite(Product product) async {
-    try {
-      final isAdding = await wishlistService.toggle(product.id);
-
-      if (!mounted) return;
-      setState(() {
-        _isFavorite = wishlistService.isFavorite(product.id);
-      });
-
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isAdding ? 'Added to wishlist' : 'Removed from wishlist',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e')),
-      );
-    }
+  bool _isGenericChatName(String value) {
+    final normalized = value.trim().toLowerCase();
+    return normalized.isEmpty ||
+        normalized == 'chat' ||
+        normalized == 'seller' ||
+        normalized == 'buyer' ||
+        normalized == 'admin' ||
+        normalized == 'user' ||
+        normalized == 'unknown seller' ||
+        normalized == 'unknown buyer' ||
+        normalized == 'unknown user';
   }
 
+  String _profileDisplayName(Map<String, dynamic> profile) {
+    final fullName = (profile['full_name'] ?? '').toString().trim();
+    if (fullName.isNotEmpty) return fullName;
+
+    final email = (profile['email'] ?? '').toString().trim();
+    if (email.isEmpty) return '';
+
+    final localPart = email.split('@').first.trim();
+    return localPart.isNotEmpty ? localPart : email;
+  }
+
+
   Future<void> _addToCart(Product product) async {
-    if (product.status.toLowerCase() == 'sold') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This product is out of stock')),
-      );
-      return;
-    }
+    final messenger = appScaffoldMessengerKey.currentState;
 
     try {
       final user = supabase.auth.currentUser;
       if (user == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           const SnackBar(content: Text('Please login first')),
+        );
+        return;
+      }
+
+      if (product.isOwnedBy(user.id)) {
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('You cannot buy your own product')),
+        );
+        return;
+      }
+
+      final latestProductRow = await supabase
+          .from('products')
+          .select()
+          .eq('id', product.id)
+          .maybeSingle();
+      if (latestProductRow == null) {
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('This product is no longer available')),
+        );
+        return;
+      }
+
+      final latestProduct = Product.fromMap(
+        Map<String, dynamic>.from(latestProductRow),
+      );
+      if (!latestProduct.isBuyable) {
+        if (mounted) {
+          setState(() {
+            _product = latestProduct;
+          });
+        }
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('This product is out of stock')),
         );
         return;
       }
@@ -139,7 +181,7 @@ class _DetailsPageState extends State<DetailsPage> {
             newSellerId.isNotEmpty &&
             existingSellerId != newSellerId) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
+          messenger?.showSnackBar(
             const SnackBar(
               content: Text(
                 'You can only buy from one seller at a time. Finish or clear the current cart first.',
@@ -159,6 +201,12 @@ class _DetailsPageState extends State<DetailsPage> {
 
       if (existing != null) {
         final currentQty = existing['quantity'] as int? ?? 1;
+        if (currentQty >= latestProduct.stockQty) {
+          messenger?.showSnackBar(
+            const SnackBar(content: Text('No more stock available')),
+          );
+          return;
+        }
 
         await supabase
             .from('cart_items')
@@ -166,7 +214,7 @@ class _DetailsPageState extends State<DetailsPage> {
             .eq('id', existing['id']);
 
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
+        messenger?.showSnackBar(
           const SnackBar(content: Text('Cart quantity updated')),
         );
       } else {
@@ -177,189 +225,60 @@ class _DetailsPageState extends State<DetailsPage> {
         });
 
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Added to cart')),
-        );
+        messenger?.showSnackBar(const SnackBar(content: Text('Added to cart')));
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(content: Text('Add to cart failed')),
       );
     }
   }
 
-  Future<void> _makeOffer(Product product) async {
-    if (_isSubmittingOffer) return;
-
-    if (product.status.toLowerCase() == 'sold') {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This product is already sold')),
-      );
-      return;
-    }
-
-    final user = supabase.auth.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login first')),
-      );
-      return;
-    }
-
-    final sellerId = _normalizeUserId(product.sellerId);
-    final buyerId = _normalizeUserId(user.id);
-
-    if (sellerId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Seller not available for this product')),
-      );
-      return;
-    }
-
-    if (buyerId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login again and try once more')),
-      );
-      return;
-    }
-
-    if (sellerId == buyerId) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('You cannot make an offer on your own product')),
-      );
-      return;
-    }
-
-    final priceController = TextEditingController(
-      text: product.price.toStringAsFixed(0),
-    );
-
-    final offerPrice = await showDialog<double>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Make Offer'),
-          content: TextField(
-            controller: priceController,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Offer Price',
-              hintText: 'Enter your offer',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                final parsed = double.tryParse(priceController.text.trim());
-                Navigator.pop(dialogContext, parsed);
-              },
-              child: const Text('Send Offer'),
-            ),
-          ],
-        );
-      },
-    );
-
-    priceController.dispose();
-
-    if (!mounted) return;
-
-    if (offerPrice == null || offerPrice <= 0) {
-      return;
-    }
-
-    try {
-      setState(() {
-        _isSubmittingOffer = true;
-      });
-
-      final existingOffer = await supabase
-          .from('offers')
-          .select('id, status')
-          .eq('product_id', product.id)
-          .eq('buyer_id', buyerId)
-          .eq('seller_id', sellerId)
-          .eq('status', 'pending')
-          .limit(1)
-          .maybeSingle();
-
-      if (existingOffer != null) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).hideCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('You already sent an offer for this product'),
-          ),
-        );
-        return;
-      }
-
-      await supabase.from('offers').insert({
-        'product_id': product.id,
-        'buyer_id': buyerId,
-        'seller_id': sellerId,
-        'offer_price': offerPrice,
-        'status': 'pending',
-      });
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Offer sent successfully')),
-      );
-    } on PostgrestException catch (e) {
-      if (!mounted) return;
-      final message = e.message.isNotEmpty ? e.message : 'Database rejected the offer';
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send offer: $message')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to send offer: $e')),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmittingOffer = false;
-        });
-      }
-    }
-  }
 
   Future<void> _messageSeller(Product product) async {
+    final messenger = appScaffoldMessengerKey.currentState;
+
     final user = supabase.auth.currentUser;
     if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(content: Text('Please login first')),
       );
       return;
     }
 
     if (product.sellerId == null || product.sellerId!.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(content: Text('Seller not available for this product')),
       );
       return;
     }
 
     if (product.sellerId == user.id) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(content: Text('You cannot message yourself')),
       );
       return;
     }
 
     try {
+      String buyerName = 'Buyer';
+      final buyerProfile = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (buyerProfile != null) {
+        final displayName = _profileDisplayName(
+          Map<String, dynamic>.from(buyerProfile),
+        );
+        if (displayName.isNotEmpty) {
+          buyerName = displayName;
+        }
+      }
+
       final existingConversation = await supabase
           .from('conversations')
-          .select('id')
+          .select('id, buyer_name, seller_name')
           .eq('buyer_id', user.id)
           .eq('seller_id', product.sellerId!)
           .maybeSingle();
@@ -373,10 +292,22 @@ class _DetailsPageState extends State<DetailsPage> {
             .insert({
               'buyer_id': user.id,
               'seller_id': product.sellerId,
+              'buyer_name': buyerName,
             })
             .select('id')
             .single();
         conversationId = insertedConversation['id'] as int;
+
+        // Notify seller about new conversation
+        try {
+          await supabase.from('notifications').insert({
+            'user_id': product.sellerId!,
+            'sender_id': user.id,
+            'title': 'New Message',
+            'body': '$buyerName started a conversation with you regarding ${product.title}',
+            'type': 'message',
+          });
+        } catch (_) {}
       }
 
       String sellerName = 'Seller';
@@ -388,12 +319,47 @@ class _DetailsPageState extends State<DetailsPage> {
       if (sellerProfile != null) {
         final fullName = (sellerProfile['full_name'] ?? '').toString().trim();
         final email = (sellerProfile['email'] ?? '').toString().trim();
-        sellerName = fullName.isNotEmpty ? fullName : (email.isNotEmpty ? email : sellerName);
+        final emailName = email.isEmpty ? '' : email.split('@').first.trim();
+        sellerName = fullName.isNotEmpty
+            ? fullName
+            : (emailName.isNotEmpty ? emailName : sellerName);
       }
-      ChatIdentityCache.instance.remember(
-        userId: product.sellerId!,
-        name: sellerName,
-      );
+      if (!_isGenericChatName(sellerName)) {
+        await ChatIdentityCache.instance.remember(
+          userId: product.sellerId!,
+          name: sellerName,
+        );
+      }
+      if (!_isGenericChatName(buyerName)) {
+        await ChatIdentityCache.instance.remember(
+          userId: user.id,
+          name: buyerName,
+        );
+      }
+
+      if (existingConversation != null) {
+        final updates = <String, String>{};
+        final storedBuyerName = (existingConversation['buyer_name'] ?? '')
+            .toString()
+            .trim();
+        final storedSellerName = (existingConversation['seller_name'] ?? '')
+            .toString()
+            .trim();
+
+        if (!_isGenericChatName(buyerName) && buyerName != storedBuyerName) {
+          updates['buyer_name'] = buyerName;
+        }
+        if (!_isGenericChatName(sellerName) && sellerName != storedSellerName) {
+          updates['seller_name'] = sellerName;
+        }
+
+        if (updates.isNotEmpty) {
+          await supabase
+              .from('conversations')
+              .update(updates)
+              .eq('id', conversationId);
+        }
+      }
 
       if (!mounted) return;
       await Navigator.pushNamed(
@@ -407,7 +373,7 @@ class _DetailsPageState extends State<DetailsPage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger?.showSnackBar(
         SnackBar(content: Text('Failed to open chat: $e')),
       );
     }
@@ -426,15 +392,15 @@ class _DetailsPageState extends State<DetailsPage> {
         body: Center(
           child: Text(
             'Product not available',
-            style: GoogleFonts.inter(
-              color: secondaryText,
-            ),
+            style: GoogleFonts.inter(color: secondaryText),
           ),
         ),
       );
     }
 
-    final isSold = product.status.toLowerCase() == 'sold';
+    final isSold = !product.isBuyable;
+    final isOwnProduct = product.isOwnedBy(supabase.auth.currentUser?.id);
+    final isAdmin = _userRole == 'admin';
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -522,7 +488,11 @@ class _DetailsPageState extends State<DetailsPage> {
                           const Icon(Icons.star, color: Colors.amber, size: 20),
                           const Icon(Icons.star, color: Colors.amber, size: 20),
                           const Icon(Icons.star, color: Colors.amber, size: 20),
-                          const Icon(Icons.star_half, color: Colors.amber, size: 20),
+                          const Icon(
+                            Icons.star_half,
+                            color: Colors.amber,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             "(150 Reviews)",
@@ -536,12 +506,14 @@ class _DetailsPageState extends State<DetailsPage> {
                         runSpacing: 10,
                         children: [
                           _infoChip(
-                            icon: Icons.verified_outlined,
-                            label: product.condition.toUpperCase(),
-                          ),
-                          _infoChip(
                             icon: Icons.sell_outlined,
                             label: product.status.toUpperCase(),
+                          ),
+                          _infoChip(
+                            icon: Icons.inventory_2_outlined,
+                            label: product.stockQty > 0
+                                ? 'STOCK ${product.stockQty}'
+                                : 'OUT OF STOCK',
                           ),
                         ],
                       ),
@@ -565,44 +537,76 @@ class _DetailsPageState extends State<DetailsPage> {
                           fontSize: 15,
                         ),
                       ),
-                      const SizedBox(height: 24),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: () => _messageSeller(product),
-                          icon: const Icon(Icons.chat_bubble_outline),
-                          label: const Text('Message Seller'),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                      if (product.listingDetails.isNotEmpty) ...[
+                        const SizedBox(height: 22),
+                        Text(
+                          "Product Details",
+                          style: GoogleFonts.poppins(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: product.listingDetails.entries
+                              .where(
+                                (entry) => entry.value.toString().trim().isNotEmpty,
+                              )
+                              .map(
+                                (entry) => _detailChip(
+                                  entry.key,
+                                  entry.value.toString(),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                      ],
+                      if (!isAdmin) ...[
+                        const SizedBox(height: 24),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: product.sellerId == null ||
+                                    product.sellerId!.trim().isEmpty
+                                ? null
+                                : () => Navigator.pushNamed(
+                                      context,
+                                      '/public_seller_profile',
+                                      arguments: product.sellerId,
+                                    ),
+                            icon: const Icon(Icons.storefront_outlined),
+                            label: const Text('View Seller Profile'),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton.icon(
-                          onPressed: isSold || _isSubmittingOffer
-                              ? null
-                              : () => _makeOffer(product),
-                          icon: const Icon(Icons.local_offer_outlined),
-                          label: Text(
-                            isSold
-                                ? 'Out of Stock'
-                                : (_isSubmittingOffer
-                                      ? 'Sending Offer...'
-                                      : 'Make Offer'),
-                          ),
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
+                        const SizedBox(height: 12),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: isOwnProduct
+                                ? null
+                                : () => _messageSeller(product),
+                            icon: const Icon(Icons.chat_bubble_outline),
+                            label: Text(
+                              isOwnProduct ? 'Your Product' : 'Message Seller',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(16),
+                              ),
                             ),
                           ),
                         ),
-                      ),
+                      ],
                       const SizedBox(height: 120),
                     ],
                   ),
@@ -619,78 +623,87 @@ class _DetailsPageState extends State<DetailsPage> {
               children: [
                 _circularAction(Icons.arrow_back, () => Navigator.pop(context)),
                 _circularAction(
-                  _isFavorite ? Icons.favorite : Icons.favorite_border,
-                  () => _toggleFavorite(product),
-                  iconColor: _isFavorite ? primaryRed : textColor,
+                  _wishlistService.isFavorite(product.id) ? Icons.favorite : Icons.favorite_border,
+                  _toggleWishlist,
+                  iconColor: _wishlistService.isFavorite(product.id) ? primaryRed : textColor,
                 ),
               ],
             ),
           ),
-          Positioned(
-            bottom: 30,
-            left: 20,
-            right: 20,
-            child: Container(
-              height: 80,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              decoration: BoxDecoration(
-                color: isDark ? const Color(0xFF1B1D24) : Colors.black,
-                borderRadius: BorderRadius.circular(25),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.4),
-                    blurRadius: 20,
-                    offset: const Offset(0, 10),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        "Estimated Delivery",
-                        style: GoogleFonts.inter(
-                          color: Colors.white54,
-                          fontSize: 12,
+          if (!isAdmin)
+            Positioned(
+              bottom: 30,
+              left: 20,
+              right: 20,
+              child: Container(
+                height: 80,
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1B1D24) : Colors.black,
+                  borderRadius: BorderRadius.circular(25),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 20,
+                      offset: const Offset(0, 10),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          "Estimated Delivery",
+                          style: GoogleFonts.inter(
+                            color: Colors.white54,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const Text(
+                          "24-48 Hours",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const Spacer(),
+                    ElevatedButton(
+                      onPressed: isSold || isOwnProduct
+                          ? null
+                          : () => _addToCart(product),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: isSold || isOwnProduct
+                            ? Colors.grey
+                            : primaryRed,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 30,
+                          vertical: 15,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(15),
                         ),
                       ),
-                      const Text(
-                        "24-48 Hours",
-                        style: TextStyle(
-                          color: Colors.white,
+                      child: Text(
+                        isOwnProduct
+                            ? "Your Product"
+                            : isSold
+                            ? "Sold"
+                            : "Add to Cart",
+                        style: GoogleFonts.poppins(
                           fontWeight: FontWeight.bold,
+                          color: Colors.white,
                         ),
                       ),
-                    ],
-                  ),
-                  const Spacer(),
-                  ElevatedButton(
-                    onPressed: isSold ? null : () => _addToCart(product),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: isSold ? Colors.grey : primaryRed,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 30,
-                        vertical: 15,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15),
-                      ),
                     ),
-                    child: Text(
-                      isSold ? "Out of Stock" : "Add to Cart",
-                      style: GoogleFonts.poppins(
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -706,7 +719,9 @@ class _DetailsPageState extends State<DetailsPage> {
       child: Container(
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: AppThemeColors.elevatedSurface(context).withValues(alpha: 0.92),
+          color: AppThemeColors.elevatedSurface(
+            context,
+          ).withValues(alpha: 0.92),
           shape: BoxShape.circle,
         ),
         child: Icon(icon, color: iconColor, size: 22),
@@ -735,6 +750,24 @@ class _DetailsPageState extends State<DetailsPage> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _detailChip(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: AppThemeColors.surface(context),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Text(
+        '$label: $value',
+        style: GoogleFonts.inter(
+          fontWeight: FontWeight.w600,
+          fontSize: 13,
+          color: AppThemeColors.textPrimary(context),
+        ),
       ),
     );
   }

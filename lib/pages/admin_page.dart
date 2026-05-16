@@ -22,11 +22,55 @@ class _AdminPageState extends State<AdminPage> {
   int _sellersCount = 0;
   int _productsCount = 0;
   int _ordersCount = 0;
+  int _unreadNotifications = 0;
+  RealtimeChannel? _notificationsChannel;
 
   @override
   void initState() {
     super.initState();
     _loadAdminStats();
+    _setupNotifications();
+  }
+
+  @override
+  void dispose() {
+    _notificationsChannel?.unsubscribe();
+    super.dispose();
+  }
+
+  void _setupNotifications() {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    _loadUnreadCount();
+    _notificationsChannel = supabase
+        .channel('public:notifications:admin')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'notifications',
+          callback: (_) {
+            if (mounted) _loadUnreadCount();
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _loadUnreadCount() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final res = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', user.id)
+          .eq('is_read', false)
+          .count(CountOption.exact);
+      if (mounted) {
+        setState(() {
+          _unreadNotifications = res.count;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadAdminStats() async {
@@ -44,36 +88,39 @@ class _AdminPageState extends State<AdminPage> {
 
       final profile = await supabase
           .from('profiles')
-          .select('role, full_name')
+          .select('role')
           .eq('id', user.id)
           .maybeSingle();
 
-      final role = (profile?['role'] ?? '').toString();
-      if (role != 'admin') {
+      if (profile == null || profile['role'] != 'admin') {
         _redirectUnauthorized('/home');
         return;
       }
 
-      final usersResponse = await supabase.from('profiles').select('id, role');
-      final productsResponse = await supabase.from('products').select('id');
-      final ordersResponse = await supabase.from('orders').select('id');
-      final users = (usersResponse as List)
-          .map((item) => Map<String, dynamic>.from(item as Map))
-          .toList();
+      final results = await Future.wait([
+        supabase.from('profiles').select('id').count(CountOption.exact),
+        supabase.from('profiles').select('id').eq('role', 'buyer').count(CountOption.exact),
+        supabase.from('profiles').select('id').eq('role', 'seller').count(CountOption.exact),
+        supabase.from('products').select('id').count(CountOption.exact),
+        supabase.from('orders').select('id').count(CountOption.exact),
+        supabase.from('notifications').select('id').eq('user_id', user.id).eq('is_read', false).count(CountOption.exact),
+      ]);
 
       if (!mounted) return;
+
       setState(() {
-        _usersCount = users.length;
-        _buyersCount = users.where((item) => item['role'] == 'buyer').length;
-        _sellersCount = users.where((item) => item['role'] == 'seller').length;
-        _productsCount = (productsResponse as List).length;
-        _ordersCount = (ordersResponse as List).length;
+        _usersCount = results[0].count;
+        _buyersCount = results[1].count;
+        _sellersCount = results[2].count;
+        _productsCount = results[3].count;
+        _ordersCount = results[4].count;
+        _unreadNotifications = results[5].count;
         _isLoading = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _errorMessage = 'Could not load admin dashboard.\n$e';
+        _errorMessage = 'Failed to load dashboard statistics';
         _isLoading = false;
       });
     }
@@ -96,7 +143,7 @@ class _AdminPageState extends State<AdminPage> {
   @override
   Widget build(BuildContext context) {
     final textColor = AppThemeColors.textPrimary(context);
-    final secondaryText = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -122,223 +169,217 @@ class _AdminPageState extends State<AdminPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 48,
-                          color: secondaryText,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          _errorMessage!,
-                          textAlign: TextAlign.center,
-                          style: GoogleFonts.inter(
-                            color: secondaryText,
-                            height: 1.5,
+              ? _buildErrorView()
+              : RefreshIndicator(
+                  onRefresh: _loadAdminStats,
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                    children: [
+                      // Grid section for top 4 stats
+                      GridView.count(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        crossAxisCount: 2,
+                        crossAxisSpacing: 16,
+                        mainAxisSpacing: 16,
+                        childAspectRatio: 1.3,
+                        children: [
+                          _buildStatCard(
+                            title: 'Users',
+                            value: '$_usersCount',
+                            onTap: () => Navigator.pushNamed(context, '/admin_users'),
                           ),
-                        ),
-                        const SizedBox(height: 18),
-                        ElevatedButton(
-                          onPressed: _loadAdminStats,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: primaryRed,
-                            foregroundColor: Colors.white,
+                          _buildStatCard(
+                            title: 'Buyers',
+                            value: '$_buyersCount',
+                            onTap: () => Navigator.pushNamed(context, '/admin_users', arguments: {'role': 'buyer'}),
                           ),
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-          : RefreshIndicator(
-              onRefresh: _loadAdminStats,
-              child: ListView(
-                padding: const EdgeInsets.all(24),
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _AdminStatCard(
-                          title: 'Users',
-                          value: '$_usersCount',
-                          highlighted: true,
-                        ),
+                          _buildStatCard(
+                            title: 'Sellers',
+                            value: '$_sellersCount',
+                            onTap: () => Navigator.pushNamed(context, '/admin_users', arguments: {'role': 'seller'}),
+                          ),
+                          _buildStatCard(
+                            title: 'Products',
+                            value: '$_productsCount',
+                            onTap: () => Navigator.pushNamed(context, '/admin_products'),
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _AdminStatCard(
-                          title: 'Buyers',
-                          value: '$_buyersCount',
-                        ),
+                      const SizedBox(height: 16),
+                      // Large card for Orders
+                      _buildStatCard(
+                        title: 'Orders',
+                        value: '$_ordersCount',
+                        isWide: true,
+                        onTap: () => Navigator.pushNamed(context, '/admin_orders'),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _AdminStatCard(
-                          title: 'Sellers',
-                          value: '$_sellersCount',
-                        ),
+                      const SizedBox(height: 32),
+                      
+                      // Bottom list section
+                      _buildMenuTile(
+                        title: 'All Orders',
+                        subtitle: 'Review every order between buyers and sellers.',
+                        icon: Icons.receipt_long_outlined,
+                        onTap: () => Navigator.pushNamed(context, '/admin_orders'),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _AdminStatCard(
-                          title: 'Products',
-                          value: '$_productsCount',
-                        ),
+                      _buildMenuTile(
+                        title: 'Admin Profile',
+                        subtitle: 'Open your profile without exposing seller-only actions.',
+                        icon: Icons.person_outline,
+                        onTap: () => Navigator.pushNamed(context, '/profile'),
+                      ),
+                      _buildMenuTile(
+                        title: 'Notifications',
+                        subtitle: 'Review user-facing notifications and announcements.',
+                        icon: Icons.notifications_none,
+                        badgeCount: _unreadNotifications,
+                        onTap: () => Navigator.pushNamed(context, '/notifications'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _AdminStatCard(
-                          title: 'Orders',
-                          value: '$_ordersCount',
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  _AdminActionTile(
-                    title: 'All Orders',
-                    subtitle: 'Review every order between buyers and sellers.',
-                    icon: Icons.receipt_long_outlined,
-                    onTap: () => Navigator.pushNamed(context, '/admin_orders'),
-                  ),
-                  _AdminActionTile(
-                    title: 'Admin Profile',
-                    subtitle: 'Open your profile without exposing seller-only actions.',
-                    icon: Icons.manage_accounts_outlined,
-                    onTap: () => Navigator.pushNamed(context, '/profile'),
-                  ),
-                  _AdminActionTile(
-                    title: 'Notifications',
-                    subtitle: 'Review user-facing notifications and announcements.',
-                    icon: Icons.notifications_none,
-                    onTap: () => Navigator.pushNamed(context, '/notifications'),
-                  ),
-                  _AdminActionTile(
-                    title: 'FAQ & Help',
-                    subtitle: 'Check support content that buyers and sellers will read.',
-                    icon: Icons.help_outline,
-                    onTap: () => Navigator.pushNamed(context, '/faq'),
-                  ),
-                ],
+                ),
+    );
+  }
+
+  Widget _buildErrorView() {
+    final secondaryText = AppThemeColors.textSecondary(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.error_outline, size: 48, color: secondaryText),
+            const SizedBox(height: 12),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.inter(color: secondaryText, height: 1.5),
+            ),
+            const SizedBox(height: 18),
+            ElevatedButton(
+              onPressed: _loadAdminStats,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryRed,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatCard({
+    required String title,
+    required String value,
+    required VoidCallback onTap,
+    bool isWide = false,
+  }) {
+    final isDark = AppThemeColors.isDark(context);
+    final cardColor = isDark ? const Color(0xFF1B1D24) : Colors.black87;
+
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: isWide ? double.infinity : null,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardColor,
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              value,
+              style: GoogleFonts.poppins(
+                fontSize: 32,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
               ),
             ),
-    );
-  }
-}
-
-class _AdminStatCard extends StatelessWidget {
-  const _AdminStatCard({
-    required this.title,
-    required this.value,
-    this.highlighted = false,
-  });
-
-  final String title;
-  final String value;
-  final bool highlighted;
-
-  @override
-  Widget build(BuildContext context) {
-    final backgroundColor = highlighted
-        ? const Color(0xFFDB4444)
-        : AppThemeColors.surface(context);
-    final valueColor = highlighted ? Colors.white : AppThemeColors.textPrimary(context);
-    final labelColor = highlighted ? Colors.white70 : AppThemeColors.textSecondary(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 22),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: Column(
-        children: [
-          Text(
-            value,
-            style: GoogleFonts.poppins(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-              color: valueColor,
+            const SizedBox(height: 4),
+            Text(
+              title,
+              style: GoogleFonts.inter(
+                fontSize: 14,
+                color: Colors.white70,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            style: GoogleFonts.inter(
-              color: labelColor,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
-}
 
-class _AdminActionTile extends StatelessWidget {
-  const _AdminActionTile({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-  });
+  Widget _buildMenuTile({
+    required String title,
+    required String subtitle,
+    required IconData icon,
+    required VoidCallback onTap,
+    int badgeCount = 0,
+  }) {
+    final textColor = AppThemeColors.textPrimary(context);
+    final secondaryText = AppThemeColors.textSecondary(context);
+    final isDark = AppThemeColors.isDark(context);
 
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: AppThemeColors.surface(context),
-        borderRadius: BorderRadius.circular(24),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-        leading: CircleAvatar(
-          radius: 24,
-          backgroundColor: AppThemeColors.elevatedSurface(context),
-          child: Icon(icon, color: _AdminPageState.primaryRed),
-        ),
-        title: Text(
-          title,
-          style: GoogleFonts.poppins(
-            fontWeight: FontWeight.bold,
-            color: AppThemeColors.textPrimary(context),
-          ),
-        ),
-        subtitle: Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Text(
-            subtitle,
-            style: GoogleFonts.inter(
-              color: AppThemeColors.textSecondary(context),
-              height: 1.4,
-            ),
-          ),
-        ),
-        trailing: Icon(
-          Icons.arrow_forward_ios,
-          size: 16,
-          color: AppThemeColors.textMuted(context),
-        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: GestureDetector(
         onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1B1D24) : const Color(0xFFF8F9FA),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  shape: BoxShape.circle,
+                ),
+                child: Badge(
+                  isLabelVisible: badgeCount > 0,
+                  label: Text('$badgeCount'),
+                  backgroundColor: primaryRed,
+                  child: Icon(icon, color: isDark ? Colors.white70 : Colors.black87, size: 24),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: GoogleFonts.poppins(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: textColor,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: secondaryText, size: 20),
+            ],
+          ),
+        ),
       ),
     );
   }

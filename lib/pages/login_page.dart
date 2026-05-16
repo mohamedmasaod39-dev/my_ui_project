@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 import '../services/app_mode_service.dart';
+import 'dart:async';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -14,38 +15,112 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  static const Color primaryRed = Color(0xFFDB4444);
+
   bool _isPasswordVisible = false;
   bool _isEmailLoading = false;
+  bool _isSocialLoading = false;
 
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
   SupabaseClient get _supabase => Supabase.instance.client;
+  late final StreamSubscription<AuthState> _authStateSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+      if (data.event == AuthChangeEvent.signedIn && data.session != null) {
+        _navigateForUser(data.session!.user);
+      } else if (data.event == AuthChangeEvent.passwordRecovery) {
+        Navigator.pushReplacementNamed(context, '/reset_password');
+      }
+    });
+  }
 
   @override
   void dispose() {
+    _authStateSubscription.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  Future<void> _navigateForUser(User user) async {
-    final profile = await _supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', user.id)
-        .maybeSingle();
-    final role = (profile?['role'] ?? 'buyer').toString();
-    if (!mounted) return;
+  String _profileDisplayName(Map<String, dynamic> profile) {
+    final fullName = (profile['full_name'] ?? '').toString().trim();
+    if (fullName.isNotEmpty) return fullName;
 
-    if (role == 'admin') {
-      Navigator.pushReplacementNamed(context, '/admin');
-    } else if (role == 'seller') {
-      AppModeService.instance.setMode(AppMode.seller);
-      Navigator.pushReplacementNamed(context, '/seller_home');
-    } else {
-      AppModeService.instance.setMode(AppMode.buyer);
-      Navigator.pushReplacementNamed(context, '/home');
+    final email = (profile['email'] ?? '').toString().trim();
+    if (email.isEmpty) return '';
+
+    final localPart = email.split('@').first.trim();
+    return localPart.isNotEmpty ? localPart : email;
+  }
+
+  bool _isNavigating = false;
+
+  Future<void> _navigateForUser(User user) async {
+    if (_isNavigating) return;
+    setState(() {
+      _isNavigating = true;
+      _isEmailLoading = true;
+    });
+
+    try {
+      final profile = await _supabase
+          .from('profiles')
+          .select('role, full_name, email')
+          .eq('id', user.id)
+          .maybeSingle();
+      var role = (profile?['role'] ?? '').toString();
+
+      if (profile == null || role.isEmpty) {
+        role = 'buyer';
+        await _supabase.from('profiles').upsert({
+          'id': user.id,
+          'email': user.email,
+          'role': role,
+        });
+      }
+
+      if (profile != null) {
+        final displayName = _profileDisplayName(
+          Map<String, dynamic>.from(profile),
+        );
+        if (displayName.isNotEmpty) {
+          await ChatIdentityCache.instance.remember(
+            userId: user.id,
+            name: displayName,
+          );
+        }
+      }
+
+      if (!mounted) return;
+
+      if (role == 'admin') {
+        await Navigator.pushReplacementNamed(context, '/admin');
+      } else if (role == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+        await Navigator.pushReplacementNamed(context, '/seller_home');
+      } else {
+        AppModeService.instance.setMode(AppMode.buyer);
+        await Navigator.pushReplacementNamed(context, '/home');
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Navigation error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isNavigating = false;
+          _isEmailLoading = false;
+          _isSocialLoading = false;
+        });
+      }
     }
   }
 
@@ -73,25 +148,107 @@ class _LoginPageState extends State<LoginPage> {
       if (!mounted) return;
 
       if (response.user != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login successful.')),
-        );
-        await _navigateForUser(response.user!);
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Login successful.')));
+        // Navigation is now handled by onAuthStateChange listener
       }
     } on AuthException catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error.message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $error')));
     } finally {
       if (mounted) {
         setState(() => _isEmailLoading = false);
       }
+    }
+  }
+
+  Future<void> _signInWithProvider(OAuthProvider provider) async {
+    if (_isSocialLoading) return;
+
+    setState(() => _isSocialLoading = true);
+
+    try {
+      await _supabase.auth.signInWithOAuth(
+        provider,
+        redirectTo: 'io.supabase.flutter://login-callback',
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Social sign in failed: $error')));
+    } finally {
+      if (mounted) {
+        setState(() => _isSocialLoading = false);
+      }
+    }
+  }
+
+  Future<void> _showForgotPasswordDialog() async {
+    var resetEmail = _emailController.text.trim();
+
+    final email = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Forgot Password'),
+          content: TextFormField(
+            initialValue: resetEmail,
+            keyboardType: TextInputType.emailAddress,
+            onChanged: (value) => resetEmail = value.trim(),
+            decoration: const InputDecoration(
+              labelText: 'Email',
+              hintText: 'example@gmail.com',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, resetEmail),
+              child: const Text('Send Reset Link'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (email == null || email.isEmpty) return;
+
+    try {
+      await _supabase.auth.resetPasswordForEmail(
+        email,
+        redirectTo: 'io.supabase.flutter://login-callback',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Password reset link sent.')),
+      );
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send reset link: $error')),
+      );
     }
   }
 
@@ -107,7 +264,7 @@ class _LoginPageState extends State<LoginPage> {
                 Container(
                   height: 300,
                   decoration: const BoxDecoration(
-                    color: Color(0xFFDB4444),
+                    color: primaryRed,
                     borderRadius: BorderRadius.only(
                       bottomLeft: Radius.circular(100),
                     ),
@@ -144,37 +301,40 @@ class _LoginPageState extends State<LoginPage> {
               child: Column(
                 children: [
                   const SizedBox(height: 20),
-
                   _buildCustomInput(
-                    label: "Email Address",
+                    label: "Email",
                     hint: "example@gmail.com",
                     icon: Icons.email_outlined,
                     controller: _emailController,
                   ),
                   const SizedBox(height: 25),
-
                   _buildCustomInput(
                     label: "Password",
-                    hint: "••••••••",
+                    hint: "Password",
                     icon: Icons.lock_outline,
                     isPassword: true,
                     controller: _passwordController,
                   ),
-
                   const SizedBox(height: 15),
                   Align(
                     alignment: Alignment.centerRight,
-                    child: Text(
-                      "Forgot Password?",
-                      style: GoogleFonts.inter(
-                        color: const Color(0xFFDB4444),
-                        fontWeight: FontWeight.w600,
+                    child: TextButton(
+                      onPressed: _showForgotPasswordDialog,
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      child: Text(
+                        "Forgot Password?",
+                        style: GoogleFonts.inter(
+                          color: primaryRed,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 40),
-
                   Container(
                     width: double.infinity,
                     height: 60,
@@ -182,7 +342,7 @@ class _LoginPageState extends State<LoginPage> {
                       borderRadius: BorderRadius.circular(15),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFFDB4444).withValues(alpha: 0.3),
+                          color: primaryRed.withValues(alpha: 0.3),
                           spreadRadius: 1,
                           blurRadius: 10,
                           offset: const Offset(0, 5),
@@ -192,7 +352,7 @@ class _LoginPageState extends State<LoginPage> {
                     child: ElevatedButton(
                       onPressed: _isEmailLoading ? null : _login,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDB4444),
+                        backgroundColor: primaryRed,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(15),
                         ),
@@ -200,7 +360,7 @@ class _LoginPageState extends State<LoginPage> {
                       child: _isEmailLoading
                           ? const CircularProgressIndicator(color: Colors.white)
                           : Text(
-                              "LOG IN",
+                              "Login",
                               style: GoogleFonts.inter(
                                 fontSize: 18,
                                 fontWeight: FontWeight.bold,
@@ -209,34 +369,14 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                     ),
                   ),
-
+                  const SizedBox(height: 24),
+                  _googleButton(),
                   const SizedBox(height: 40),
-
-                  Text(
-                    "Or sign in with",
-                    style: GoogleFonts.inter(
-                      color: AppThemeColors.textSecondary(context),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      _socialIconButton(FontAwesomeIcons.google, Colors.red),
-                      const SizedBox(width: 20),
-                      _socialIconButton(FontAwesomeIcons.apple, Colors.black),
-                      const SizedBox(width: 20),
-                      _socialIconButton(FontAwesomeIcons.facebook, Colors.blue),
-                    ],
-                  ),
-
-                  const SizedBox(height: 40),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        "Don't have an account? ",
+                        "No account? ",
                         style: GoogleFonts.inter(
                           color: AppThemeColors.textSecondary(context),
                         ),
@@ -246,9 +386,9 @@ class _LoginPageState extends State<LoginPage> {
                           Navigator.pushNamed(context, '/signup');
                         },
                         child: Text(
-                          "Sign Up",
+                          "Create one",
                           style: GoogleFonts.inter(
-                            color: const Color(0xFFDB4444),
+                            color: primaryRed,
                             fontWeight: FontWeight.bold,
                           ),
                         ),
@@ -294,6 +434,9 @@ class _LoginPageState extends State<LoginPage> {
           child: TextField(
             controller: controller,
             obscureText: isPassword && !_isPasswordVisible,
+            keyboardType: isPassword
+                ? TextInputType.text
+                : TextInputType.emailAddress,
             style: GoogleFonts.inter(color: textColor),
             decoration: InputDecoration(
               hintText: hint,
@@ -328,15 +471,67 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
-  Widget _socialIconButton(IconData icon, Color color) {
+  Widget _googleButton() {
     return Container(
-      padding: const EdgeInsets.all(12),
+      width: double.infinity,
+      height: 56,
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade200),
-        borderRadius: BorderRadius.circular(12),
+        color: AppThemeColors.isDark(context) ? const Color(0xFF1B1D24) : Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(
+          color: AppThemeColors.isDark(context) ? Colors.white12 : Colors.grey.shade200,
+        ),
       ),
-      child: FaIcon(icon, color: color, size: 24),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(15),
+          onTap: _isSocialLoading
+              ? null
+              : () => _signInWithProvider(OAuthProvider.google),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (_isSocialLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2.5),
+                )
+              else ...[
+                Image.network(
+                  'https://img.icons8.com/color/48/google-logo.png',
+                  width: 24,
+                  height: 24,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Icon(Icons.g_mobiledata, size: 30, color: Colors.blue);
+                  },
+                ),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: Text(
+                    'Continue with Google',
+                    style: GoogleFonts.inter(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppThemeColors.textPrimary(context),
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
-
 }

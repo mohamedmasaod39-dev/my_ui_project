@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class FAQPage extends StatefulWidget {
   const FAQPage({super.key});
@@ -11,6 +12,12 @@ class FAQPage extends StatefulWidget {
 
 class _FAQPageState extends State<FAQPage> {
   static const Color primaryRed = Color(0xFFDB4444);
+
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  void _openContactSupportForm() {
+    Navigator.pushNamed(context, '/contact');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,6 +40,14 @@ class _FAQPageState extends State<FAQPage> {
               ),
               onPressed: () => Navigator.pop(context),
             ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.search, color: Colors.white),
+                onPressed: () {
+                  // Search functionality could be added here
+                },
+              ),
+            ],
             flexibleSpace: FlexibleSpaceBar(
               centerTitle: true,
               title: Text(
@@ -109,67 +124,111 @@ class _FAQPageState extends State<FAQPage> {
                   "Is the iPhone 17 Pro authentic?",
                   "All electronics on Listables are sourced directly from authorized distributors with full international warranties.",
                 ),
-                _buildModernFaqTile(
-                  "Can I pay with Instapay?",
-                  "Yes! We support Instapay, Credit Cards, and Vodafone Cash for absolute convenience.",
-                ),
+
                 const SizedBox(height: 30),
 
                 // 4. CONTACT SUPPORT CARD
-                Container(
-                  padding: const EdgeInsets.all(25),
-                  decoration: BoxDecoration(
-                    color: Colors.black,
-                    borderRadius: BorderRadius.circular(25),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.2),
-                        blurRadius: 15,
-                        offset: const Offset(0, 8),
-                      ),
-                    ],
+                if (Supabase.instance.client.auth.currentUser != null)
+                  FutureBuilder(
+                    future: Supabase.instance.client
+                        .from('profiles')
+                        .select('role')
+                        .eq('id', Supabase.instance.client.auth.currentUser!.id)
+                        .maybeSingle(),
+                    builder: (context, snapshot) {
+                      final role = snapshot.data?['role']?.toString();
+                      if (role == 'admin') return const SizedBox.shrink();
+                      
+                      return Container(
+                        padding: const EdgeInsets.all(25),
+                        decoration: BoxDecoration(
+                          color: Colors.black,
+                          borderRadius: BorderRadius.circular(25),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.2),
+                              blurRadius: 15,
+                              offset: const Offset(0, 8),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              "Still need help?",
+                              style: GoogleFonts.poppins(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              "Our support team is available 24/7",
+                              style: GoogleFonts.inter(color: Colors.white54),
+                            ),
+                            const SizedBox(height: 20),
+                            ElevatedButton(
+                              onPressed: _openContactSupportForm,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: primaryRed,
+                                minimumSize: const Size(double.infinity, 55),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(15),
+                                ),
+                              ),
+                              child: const Text(
+                                "Contact Support",
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
-                  child: Column(
-                    children: [
-                      Text(
-                        "Still need help?",
-                        style: GoogleFonts.poppins(
-                          color: Colors.white,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 18,
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        "Our support team is available 24/7",
-                        style: GoogleFonts.inter(color: Colors.white54),
-                      ),
-                      const SizedBox(height: 20),
-                      ElevatedButton(
-                        onPressed: () {},
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: primaryRed,
-                          minimumSize: const Size(double.infinity, 55),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(15),
-                          ),
-                        ),
-                        child: const Text(
-                          "Contact Support",
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
                 const SizedBox(height: 100), // Extra space for better scrolling
               ]),
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildSupportField({
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    TextInputType? keyboardType,
+    int maxLines = 1,
+    String? Function(String?)? validator,
+  }) {
+    return TextFormField(
+      controller: controller,
+      keyboardType: keyboardType,
+      maxLines: maxLines,
+      validator: validator,
+      decoration: InputDecoration(
+        labelText: label,
+        prefixIcon: Icon(icon, color: primaryRed),
+        filled: true,
+        fillColor: AppThemeColors.surface(context),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: AppThemeColors.border(context)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide(color: AppThemeColors.border(context)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: const BorderSide(color: primaryRed),
+        ),
       ),
     );
   }
@@ -250,4 +309,3 @@ class _FAQPageState extends State<FAQPage> {
     );
   }
 }
-

@@ -6,6 +6,17 @@ import 'package:my_ui_project/pages/index_page.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 
+/// Returns the listing_details key to use as a sub-filter for a given category.
+String _filterFieldFor(String categoryName) {
+  final lower = categoryName.toLowerCase();
+  if (lower.contains('gaming') || lower.contains('game')) return 'Platform';
+  if (lower.contains('electronic')) return 'Brand';
+  if (lower.contains('home') || lower.contains('furniture')) return 'Material';
+  if (lower.contains('fashion') || lower.contains('clothing')) return 'Gender';
+  if (lower.contains('sport')) return 'Sport';
+  return 'Genre';
+}
+
 class CategoryProductsPage extends StatefulWidget {
   const CategoryProductsPage({super.key});
 
@@ -25,16 +36,23 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
   List<Product> _filteredProducts = [];
   bool _isLoading = true;
   bool _didSetupDependencies = false;
+  bool _isRouteObserverSubscribed = false;
 
   String? categoryName;
+
+  // Sub-filter state
+  String? _activeFilterValue; // null = "All"
+  List<String> _filterOptions = [];
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    routeObserver.unsubscribe(this);
-    final route = ModalRoute.of(context);
-    if (route is PageRoute) {
-      routeObserver.subscribe(this, route);
+    if (!_isRouteObserverSubscribed) {
+      final route = ModalRoute.of(context);
+      if (route is PageRoute) {
+        routeObserver.subscribe(this, route);
+        _isRouteObserverSubscribed = true;
+      }
     }
 
     if (_didSetupDependencies) return;
@@ -49,7 +67,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
 
   @override
   void dispose() {
-    routeObserver.unsubscribe(this);
+    if (_isRouteObserverSubscribed) {
+      routeObserver.unsubscribe(this);
+      _isRouteObserverSubscribed = false;
+    }
     _searchController.dispose();
     wishlistService.favoriteIds.removeListener(_onWishlistChanged);
     super.dispose();
@@ -72,33 +93,61 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
           .from('products')
           .select()
           .eq('category_id', category['id'])
-          .neq('status', 'hidden');
+          .eq('status', 'active')
+          .eq('validated', true)
+          .gt('stock_qty', 0);
 
       final data = (response as List).map((e) => Product.fromMap(e)).toList();
 
+      // Build sub-filter options from listing_details
+      final filterField = _filterFieldFor(categoryName ?? '');
+      final seen = <String>{};
+      final options = <String>[];
+      for (final p in data) {
+        final val = p.listingDetails[filterField]?.toString().trim() ?? '';
+        if (val.isNotEmpty && seen.add(val)) {
+          options.add(val);
+        }
+      }
+      options.sort();
+
+      if (!mounted) return;
       setState(() {
         _products = data;
-        _filteredProducts = data;
+        _filterOptions = options;
+        // Reset filter if it no longer exists
+        if (_activeFilterValue != null &&
+            !options.contains(_activeFilterValue)) {
+          _activeFilterValue = null;
+        }
       });
 
       _applyFilters();
     } catch (e) {
       debugPrint('Failed to load category products: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
   void _applyFilters() {
     final query = _searchController.text.trim().toLowerCase();
+    final filterField = _filterFieldFor(categoryName ?? '');
 
     final filtered = _products.where((product) {
-      if (query.isEmpty) {
-        return true;
-      }
-
-      return product.title.toLowerCase().contains(query) ||
+      // Text search
+      final matchesText = query.isEmpty ||
+          product.title.toLowerCase().contains(query) ||
           product.description.toLowerCase().contains(query);
+
+      // Sub-filter
+      final matchesFilter = _activeFilterValue == null ||
+          (product.listingDetails[filterField]?.toString().trim() ==
+              _activeFilterValue);
+
+      return matchesText && matchesFilter;
     }).toList();
 
     if (!mounted) return;
@@ -113,7 +162,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
     }
   }
 
-  String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+  String _formatPrice(Product product) =>
+      '${product.currency} ${product.price.toStringAsFixed(0)}';
 
   Future<void> _toggleFavorite(Product product) async {
     try {
@@ -138,6 +188,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
   @override
   Widget build(BuildContext context) {
     final textColor = AppThemeColors.textPrimary(context);
+    final filterField = _filterFieldFor(categoryName ?? '');
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -152,6 +203,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
       ),
       body: Column(
         children: [
+          // ── Search bar ──
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
@@ -171,8 +223,79 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
               ),
             ),
           ),
+
+          // ── Sub-filter chips ──
+          if (_filterOptions.isNotEmpty)
+            SizedBox(
+              height: 44,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                itemCount: _filterOptions.length + 1, // +1 for "All"
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (context, index) {
+                  if (index == 0) {
+                    // "All" chip
+                    final isSelected = _activeFilterValue == null;
+                    return _filterChip(
+                      label: 'All $filterField',
+                      selected: isSelected,
+                      onTap: () {
+                        setState(() => _activeFilterValue = null);
+                        _applyFilters();
+                      },
+                    );
+                  }
+                  final val = _filterOptions[index - 1];
+                  final isSelected = _activeFilterValue == val;
+                  return _filterChip(
+                    label: val,
+                    selected: isSelected,
+                    onTap: () {
+                      setState(() =>
+                          _activeFilterValue = isSelected ? null : val);
+                      _applyFilters();
+                    },
+                  );
+                },
+              ),
+            ),
+
+          if (_filterOptions.isNotEmpty) const SizedBox(height: 8),
+
           Expanded(child: _buildBody()),
         ],
+      ),
+    );
+  }
+
+  Widget _filterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? primaryRed : AppThemeColors.surface(context),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: selected ? primaryRed : Colors.transparent,
+          ),
+        ),
+        child: Text(
+          label,
+          style: GoogleFonts.inter(
+            color: selected
+                ? Colors.white
+                : AppThemeColors.textPrimary(context),
+            fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+            fontSize: 13,
+          ),
+        ),
       ),
     );
   }
@@ -202,7 +325,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
       itemBuilder: (context, index) {
         final product = _filteredProducts[index];
         final isFav = wishlistService.isFavorite(product.id);
-        final isOutOfStock = product.status.toLowerCase() == 'sold';
+        final isOutOfStock = !product.isBuyable;
         final textColor = AppThemeColors.textPrimary(context);
 
         return Container(
@@ -276,7 +399,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            'Out of stock',
+                            product.stockQty <= 0 ? 'Out' : 'Sold',
                             style: GoogleFonts.inter(
                               color: Colors.white,
                               fontSize: 11,
@@ -300,27 +423,27 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                   },
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      product.title,
-                      style: GoogleFonts.inter(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 14,
-                        color: textColor,
+                    children: [
+                      Text(
+                        product.title,
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                          color: textColor,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _formatPrice(product.price),
-                      style: GoogleFonts.poppins(
-                        color: isOutOfStock ? Colors.grey : primaryRed,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15,
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatPrice(product),
+                        style: GoogleFonts.poppins(
+                          color: isOutOfStock ? Colors.grey : primaryRed,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
                   ),
                 ),
               ),

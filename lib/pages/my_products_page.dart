@@ -91,16 +91,19 @@ class _MyProductsPageState extends State<MyProductsPage> {
 
   Future<void> _updateStatus(Product product, String status) async {
     try {
+      final nextStatus = product.stockQty <= 0 && status == 'active'
+          ? 'sold'
+          : status;
       await supabase
           .from('products')
-          .update({'status': status})
+          .update({'status': nextStatus})
           .eq('id', product.id);
 
       await _loadMyProducts();
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Status updated to $status')),
+        SnackBar(content: Text('Status updated to $nextStatus')),
       );
     } catch (e) {
       if (!mounted) return;
@@ -110,7 +113,8 @@ class _MyProductsPageState extends State<MyProductsPage> {
     }
   }
 
-  String _formatPrice(double price) => 'EGP ${price.toStringAsFixed(0)}';
+  String _formatPrice(Product product) =>
+      '${product.currency} ${product.price.toStringAsFixed(0)}';
 
   @override
   Widget build(BuildContext context) {
@@ -249,7 +253,7 @@ class _MyProductsPageState extends State<MyProductsPage> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          _formatPrice(product.price),
+                          _formatPrice(product),
                           style: GoogleFonts.poppins(
                             color: primaryRed,
                             fontWeight: FontWeight.bold,
@@ -262,6 +266,23 @@ class _MyProductsPageState extends State<MyProductsPage> {
                             color: AppThemeColors.textSecondary(context),
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Stock: ${product.stockQty}',
+                          style: GoogleFonts.inter(
+                            color: AppThemeColors.textSecondary(context),
+                          ),
+                        ),
+                        if (!product.validated) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Pending validation',
+                            style: GoogleFonts.inter(
+                              color: Colors.orange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

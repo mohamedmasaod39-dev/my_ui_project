@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/pages/messages_page.dart';
 import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -19,6 +20,7 @@ class _ChatPageState extends State<ChatPage> {
   bool _isSending = false;
   bool _didMarkRead = false;
   bool _didResolveHeaderName = false;
+  bool _isDeletingConversation = false;
   int? _conversationId;
   String? _otherUserId;
   String _passedOtherUserName = 'Chat';
@@ -79,12 +81,21 @@ class _ChatPageState extends State<ChatPage> {
     if (user == null) return;
 
     _didMarkRead = true;
-    await supabase
-        .from('messages')
-        .update({'read_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('conversation_id', conversationId)
-        .eq('receiver_id', user.id)
-        .isFilter('read_at', null);
+    try {
+      await supabase
+          .from('messages')
+          .update({'read_at': DateTime.now().toUtc().toIso8601String()})
+          .eq('conversation_id', conversationId)
+          .eq('receiver_id', user.id)
+          .isFilter('read_at', null);
+
+      await supabase
+          .from('notifications')
+          .update({'is_read': true})
+          .eq('user_id', user.id)
+          .eq('type', 'message')
+          .eq('is_read', false);
+    } catch (_) {}
   }
 
   Future<void> _sendMessage({
@@ -134,6 +145,7 @@ class _ChatPageState extends State<ChatPage> {
       try {
         await supabase.from('notifications').insert({
           'user_id': receiverId,
+          'sender_id': user.id,
           'title': 'New message',
           'body': '$senderName sent you a message',
           'type': 'message',
@@ -153,6 +165,121 @@ class _ChatPageState extends State<ChatPage> {
         SnackBar(content: Text('Failed to send message: $e')),
       );
     } finally {
+      if (mounted) {
+        setState(() {
+          _isSending = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _sendImage({
+    required int conversationId,
+    required String receiverId,
+  }) async {
+    final controller = TextEditingController();
+
+    try {
+      final imageUrl = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
+            title: Text(
+              'Attach Image',
+              style: GoogleFonts.poppins(
+                color: AppThemeColors.textPrimary(dialogContext),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            content: TextField(
+              controller: controller,
+              style: GoogleFonts.inter(
+                color: AppThemeColors.textPrimary(dialogContext),
+              ),
+              decoration: const InputDecoration(
+                hintText: 'Enter image URL',
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final value = controller.text.trim();
+                  if (value.isEmpty) return;
+                  Navigator.pop(dialogContext, value);
+                },
+                child: const Text('Send'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (imageUrl == null || imageUrl.isEmpty) return;
+
+      final text = '[img]$imageUrl[/img]';
+      final user = supabase.auth.currentUser;
+      if (user == null) return;
+
+      setState(() {
+        _isSending = true;
+      });
+
+      var senderName = 'Someone';
+      final senderProfile = await supabase
+          .from('profiles')
+          .select('full_name, email')
+          .eq('id', user.id)
+          .maybeSingle();
+      if (senderProfile != null) {
+        final displayName = _profileDisplayName(
+          Map<String, dynamic>.from(senderProfile),
+        );
+        if (displayName.isNotEmpty) {
+          senderName = displayName;
+        }
+      }
+
+      await supabase.from('messages').insert({
+        'conversation_id': conversationId,
+        'sender_id': user.id,
+        'receiver_id': receiverId,
+        'body': text,
+      });
+
+      await supabase
+          .from('conversations')
+          .update({
+            'last_message': 'Sent an image',
+            'last_message_at': DateTime.now().toUtc().toIso8601String(),
+          })
+          .eq('id', conversationId);
+
+      try {
+        await supabase.from('notifications').insert({
+          'user_id': receiverId,
+          'sender_id': user.id,
+          'title': 'New message',
+          'body': '$senderName sent you an image',
+          'type': 'message',
+        });
+      } catch (_) {}
+
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _scrollToLatestMessage();
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to send image: $e')),
+      );
+    } finally {
+      controller.dispose();
       if (mounted) {
         setState(() {
           _isSending = false;
@@ -303,6 +430,80 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  Future<void> _deleteConversation({
+    required int conversationId,
+    required String otherUserName,
+  }) async {
+    if (_isDeletingConversation) return;
+
+    final shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
+          title: Text(
+            'Delete chat?',
+            style: GoogleFonts.poppins(
+              color: AppThemeColors.textPrimary(dialogContext),
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: Text(
+            'This will permanently delete your conversation with $otherUserName.',
+            style: GoogleFonts.inter(
+              color: AppThemeColors.textSecondary(dialogContext),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDB4444),
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldDelete != true) return;
+
+    setState(() {
+      _isDeletingConversation = true;
+    });
+
+    try {
+      await supabase
+          .from('messages')
+          .delete()
+          .eq('conversation_id', conversationId);
+      await supabase.from('conversations').delete().eq('id', conversationId);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chat deleted successfully')),
+      );
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to delete chat: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeletingConversation = false;
+        });
+      }
+    }
+  }
+
   Future<void> _showMessageActions({
     required int messageId,
     required int conversationId,
@@ -370,7 +571,11 @@ class _ChatPageState extends State<ChatPage> {
         normalized == 'chat' ||
         normalized == 'seller' ||
         normalized == 'buyer' ||
-        normalized == 'user';
+        normalized == 'admin' ||
+        normalized == 'user' ||
+        normalized == 'unknown seller' ||
+        normalized == 'unknown buyer' ||
+        normalized == 'unknown user';
   }
 
   String _profileDisplayName(Map<String, dynamic> profile) {
@@ -421,7 +626,11 @@ class _ChatPageState extends State<ChatPage> {
     final otherUserName =
         _resolvedOtherUserName ?? cachedOtherUserName ?? passedOtherUserName;
 
-    if (conversationId == null || otherUserId == null || user == null) {
+    if (conversationId == null || otherUserId == null) {
+      return const MessagesPage();
+    }
+
+    if (user == null) {
       return Scaffold(
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
@@ -437,7 +646,7 @@ class _ChatPageState extends State<ChatPage> {
         ),
         body: Center(
           child: Text(
-            'Conversation not available',
+            'Please login first',
             style: GoogleFonts.inter(
               color: AppThemeColors.textSecondary(context),
             ),
@@ -458,6 +667,23 @@ class _ChatPageState extends State<ChatPage> {
             fontWeight: FontWeight.bold,
           ),
         ),
+        actions: [
+          IconButton(
+            onPressed: _isDeletingConversation
+                ? null
+                : () => _deleteConversation(
+                      conversationId: conversationId,
+                      otherUserName: otherUserName,
+                    ),
+            icon: _isDeletingConversation
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(Icons.delete_outline, color: textColor),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -537,15 +763,55 @@ class _ChatPageState extends State<ChatPage> {
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                body,
-                                style: GoogleFonts.inter(
-                                  color: isMe
-                                      ? Colors.white
-                                      : AppThemeColors.textPrimary(context),
-                                  height: 1.4,
+                              if (body.contains('[img]') && body.contains('[/img]')) ...[
+                                () {
+                                  final imgStart = body.indexOf('[img]') + 5;
+                                  final imgEnd = body.indexOf('[/img]');
+                                  final url = body.substring(imgStart, imgEnd);
+                                  final textBefore = body.substring(0, imgStart - 5).trim();
+                                  return Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      if (textBefore.isNotEmpty) ...[
+                                        Text(
+                                          textBefore,
+                                          style: GoogleFonts.inter(
+                                            color: isMe
+                                                ? Colors.white
+                                                : AppThemeColors.textPrimary(context),
+                                            height: 1.4,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 8),
+                                      ],
+                                      ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.network(
+                                          url,
+                                          width: 250,
+                                          height: 200,
+                                          fit: BoxFit.cover,
+                                          errorBuilder: (_, __, ___) => Container(
+                                            width: 250,
+                                            height: 200,
+                                            color: Colors.grey.withValues(alpha: 0.2),
+                                            child: const Icon(Icons.broken_image, size: 50),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  );
+                                }()
+                              ] else
+                                Text(
+                                  body,
+                                  style: GoogleFonts.inter(
+                                    color: isMe
+                                        ? Colors.white
+                                        : AppThemeColors.textPrimary(context),
+                                    height: 1.4,
+                                  ),
                                 ),
-                              ),
                               const SizedBox(height: 6),
                               Text(
                                 _formatMessageTime(createdAt),
@@ -572,6 +838,18 @@ class _ChatPageState extends State<ChatPage> {
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: Row(
                 children: [
+                  IconButton(
+                    onPressed: _isSending
+                        ? null
+                        : () => _sendImage(
+                              conversationId: conversationId,
+                              receiverId: otherUserId,
+                            ),
+                    icon: Icon(
+                      Icons.image_outlined,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
+                  ),
                   Expanded(
                     child: TextField(
                       controller: _messageController,

@@ -3,31 +3,37 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'pages/index_page.dart';
 import 'pages/login_page.dart';
+import 'pages/launch_page.dart';
 import 'pages/details_page.dart';
 import 'pages/profile_page.dart';
 import 'pages/cart_page.dart';
 import 'pages/search_page.dart';
 import 'pages/signup_page.dart';
-import 'pages/wishlist_page.dart';
+import 'pages/signup_page.dart';
 import 'pages/faq_page.dart';
 import 'pages/about_page.dart';
 import 'pages/category_products_page.dart';
 import 'pages/orders_page.dart';
 import 'pages/notifications_page.dart';
 import 'pages/messages_page.dart';
-import 'pages/offers_page.dart';
 import 'pages/checkout_success_page.dart';
 import 'pages/chat_page.dart';
 import 'pages/my_products_page.dart';
 import 'pages/add_edit_product_page.dart';
-import 'pages/role_selection_page.dart';
 import 'pages/seller_home_page.dart';
 import 'pages/seller_orders_page.dart';
-import 'pages/seller_offers_page.dart';
+import 'pages/seller_profile_page.dart';
 import 'pages/admin_page.dart';
 import 'pages/admin_orders_page.dart';
+import 'pages/admin_users_page.dart';
+import 'pages/admin_products_moderation_page.dart';
 import 'pages/app_settings_page.dart';
 import 'pages/reset_password_page.dart';
+import 'pages/escrow_page.dart';
+import 'pages/public_seller_profile_page.dart';
+import 'pages/contact_page.dart';
+import 'pages/wishlist_page.dart';
+import 'services/app_scaffold_messenger.dart';
 import 'services/chat_identity_cache.dart';
 import 'services/theme_service.dart';
 
@@ -37,9 +43,16 @@ final RouteObserver<ModalRoute<void>> routeObserver =
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  const useLocalSupabase = false;
+  const localSupabaseUrl = 'http://10.0.2.2:54321';
+  const localSupabaseAnonKey = 'YOUR_LOCAL_ANON_KEY_HERE';
+  const remoteSupabaseUrl = 'https://bpmafrqnxisigfaxefiu.supabase.co';
+  const remoteSupabaseAnonKey =
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwbWFmcnFueGlzaWdmYXhlZml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTkxNTYsImV4cCI6MjA4OTIzNTE1Nn0.x2c1IwJwxkAKq90zrpxsDMX-5uW-FO3QOsc1vVIQfyA';
+
   await Supabase.initialize(
-    url: 'https://bpmafrqnxisigfaxefiu.supabase.co',
-    anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJwbWFmcnFueGlzaWdmYXhlZml1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NTkxNTYsImV4cCI6MjA4OTIzNTE1Nn0.x2c1IwJwxkAKq90zrpxsDMX-5uW-FO3QOsc1vVIQfyA',
+    url: useLocalSupabase ? localSupabaseUrl : remoteSupabaseUrl,
+    anonKey: useLocalSupabase ? localSupabaseAnonKey : remoteSupabaseAnonKey,
   );
   await ChatIdentityCache.instance.initialize();
   await ThemeService.instance.initialize();
@@ -119,40 +132,51 @@ class ListablesApp extends StatelessWidget {
 
         return MaterialApp(
           debugShowCheckedModeBanner: false,
+          scaffoldMessengerKey: appScaffoldMessengerKey,
           navigatorObservers: [routeObserver],
           theme: lightTheme,
           darkTheme: darkTheme,
           themeMode: themeMode,
-          initialRoute: '/login',
+          initialRoute: '/launch',
           routes: {
+            '/launch': (context) => const LaunchPage(),
             '/login': (context) => const LoginPage(),
             '/signup': (context) => const SignupPage(),
-            '/role_selection': (context) => const RoleSelectionPage(),
             '/admin': (context) => const AdminPage(),
             '/admin_orders': (context) => const AdminOrdersPage(),
+            '/admin_users': (context) => const AdminUsersPage(),
+            '/admin_products': (context) => const AdminProductsPage(),
             '/home': (context) => const IndexPage(),
             '/seller_home': (context) => const SellerHomePage(),
             '/details': (context) => const DetailsPage(),
             '/profile': (context) => const ProfilePage(),
             '/cart': (context) => const CartPage(),
             '/search': (context) => const SearchPage(),
-            '/wishlist': (context) => const WishlistPage(),
             '/faq': (context) => const FAQPage(),
             '/about': (context) => AboutUsPage(),
             '/category_products_page': (context) => const CategoryProductsPage(),
             '/orders': (context) => const OrdersPage(),
             '/notifications': (context) => const NotificationsPage(),
             '/messages': (context) => const MessagesPage(),
-            '/offers': (context) => const OffersPage(),
             '/chat': (context) => const ChatPage(),
             '/checkout_success': (context) => const CheckoutSuccessPage(),
             '/my_products': (context) => const MyProductsPage(),
             '/add_product': (context) => const AddEditProductPage(),
             '/edit_product': (context) => const AddEditProductPage(),
             '/seller_orders': (context) => const SellerOrdersPage(),
-            '/seller_offers': (context) => const SellerOffersPage(),
+            '/seller_profile': (context) => const SellerProfilePage(),
             '/app_settings': (context) => const AppSettingsPage(),
             '/reset_password': (context) => const ResetPasswordPage(),
+            '/escrow': (context) {
+              final args = ModalRoute.of(context)!.settings.arguments as Map<String, dynamic>;
+              return EscrowPage(
+                orderId: args['orderId'] as int,
+                role: args['role'] as String,
+              );
+            },
+            '/public_seller_profile': (context) => const PublicSellerProfilePage(),
+            '/contact': (context) => const ContactPage(),
+            '/wishlist': (context) => const WishlistPage(),
           },
         );
       },
