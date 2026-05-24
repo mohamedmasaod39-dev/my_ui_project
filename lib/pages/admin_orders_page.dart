@@ -14,7 +14,10 @@ class AdminOrderItemModel {
     required this.quantity,
     required this.orderStatus,
     required this.customerName,
+    required this.customerEmail,
+    required this.phoneNumber,
     required this.shippingAddress,
+    required this.addressLine2,
     required this.city,
     required this.state,
     required this.zipcode,
@@ -38,7 +41,10 @@ class AdminOrderItemModel {
   final int quantity;
   final String orderStatus;
   final String customerName;
+  final String customerEmail;
+  final String phoneNumber;
   final String shippingAddress;
+  final String addressLine2;
   final String city;
   final String state;
   final String zipcode;
@@ -57,7 +63,7 @@ class AdminOrderItemModel {
     final rawPrice = map['price'];
     final order = map['orders'] as Map<String, dynamic>?;
     final product = map['products'] as Map<String, dynamic>?;
-    
+
     final confirmations = (order?['escrow_confirmations'] as List?) ?? [];
     bool bConf = false;
     bool sConf = false;
@@ -85,7 +91,10 @@ class AdminOrderItemModel {
       quantity: map['quantity'] as int? ?? 1,
       orderStatus: (order?['status'] ?? 'pending').toString(),
       customerName: (order?['customer_name'] ?? '').toString(),
+      customerEmail: (order?['customer_email'] ?? '').toString(),
+      phoneNumber: (order?['phone_number'] ?? '').toString(),
       shippingAddress: (order?['shipping_address'] ?? '').toString(),
+      addressLine2: (order?['address_line2'] ?? '').toString(),
       city: (order?['city'] ?? '').toString(),
       state: (order?['state'] ?? '').toString(),
       zipcode: (order?['zipcode'] ?? '').toString(),
@@ -147,13 +156,25 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'orders',
-          callback: (_) { if (mounted) _loadOrders(); },
+          callback: (_) {
+            if (mounted) _loadOrders();
+          },
         )
         .onPostgresChanges(
           event: PostgresChangeEvent.all,
           schema: 'public',
           table: 'order_items',
-          callback: (_) { if (mounted) _loadOrders(); },
+          callback: (_) {
+            if (mounted) _loadOrders();
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'escrow_confirmations',
+          callback: (_) {
+            if (mounted) _loadOrders();
+          },
         )
         .subscribe();
   }
@@ -166,7 +187,10 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
       });
 
       final user = supabase.auth.currentUser;
-      if (user == null) { _redirectUnauthorized('/login'); return; }
+      if (user == null) {
+        _redirectUnauthorized('/login');
+        return;
+      }
 
       final profile = await supabase
           .from('profiles')
@@ -179,7 +203,11 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
         return;
       }
 
-      final args = (ModalRoute.of(context)?.settings.arguments as Map<String, dynamic>?) ?? {};
+      if (!mounted) return;
+      final args =
+          (ModalRoute.of(context)?.settings.arguments
+              as Map<String, dynamic>?) ??
+          {};
       final orderIdFilter = args['order_id'];
       final userIdFilter = args['user_id'];
 
@@ -187,15 +215,15 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           .from('order_items')
           .select(
             'id, order_id, seller_id, price, quantity, '
-            'orders!inner(buyer_id, status, customer_name, shipping_address, city, state, zipcode, payment_method, cancelled_by_role, admin_cancel_reason, created_at, '
+            'orders!inner(buyer_id, status, customer_name, customer_email, phone_number, shipping_address, address_line2, city, state, zipcode, payment_method, cancelled_by_role, admin_cancel_reason, created_at, '
             'escrow_confirmations(role, confirmed, proof_image_url)), '
             'products(title, main_image_url)',
           );
-      
+
       if (orderIdFilter != null) {
         query = query.eq('order_id', orderIdFilter);
       }
-      
+
       if (userIdFilter != null) {
         // PostgREST fails to parse logic trees with nested OR filters across tables.
         // We solve this by finding the order IDs for the buyer first.
@@ -203,7 +231,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
             .from('orders')
             .select('id')
             .eq('buyer_id', userIdFilter);
-        
+
         final buyerOrderIds = (buyerOrdersResponse as List)
             .map((o) => o['id'])
             .toList();
@@ -212,15 +240,20 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           query = query.eq('seller_id', userIdFilter);
         } else {
           // Filter items where user is seller OR order belongs to buyer
-          query = query.or('seller_id.eq.$userIdFilter, order_id.in.(${buyerOrderIds.join(",")})');
+          query = query.or(
+            'seller_id.eq.$userIdFilter, order_id.in.(${buyerOrderIds.join(",")})',
+          );
         }
       }
 
       final response = await query.order('id', ascending: false);
 
       final loadedOrders = (response as List)
-          .map((item) => AdminOrderItemModel.fromMap(
-              Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) => AdminOrderItemModel.fromMap(
+              Map<String, dynamic>.from(item as Map),
+            ),
+          )
           .toList();
 
       final buyerIds = loadedOrders
@@ -274,11 +307,13 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
 
   void _redirectUnauthorized(String routeName) {
     if (!mounted) return;
-    
+
     appScaffoldMessengerKey.currentState?.showSnackBar(
-      const SnackBar(content: Text('Only admins can view all marketplace orders.')),
+      const SnackBar(
+        content: Text('Only admins can view all marketplace orders.'),
+      ),
     );
-    
+
     Future.microtask(() {
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(context, routeName, (_) => false);
@@ -294,7 +329,10 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
       order.orderStatus != 'completed';
 
   bool _canAdminComplete(AdminOrderItemModel order) =>
-      order.orderStatus == 'delivered';
+      order.buyerConfirmed &&
+      order.sellerConfirmed &&
+      order.orderStatus != 'completed' &&
+      order.orderStatus != 'cancelled';
 
   Future<void> _cancelOrderAsAdmin(AdminOrderItemModel order) async {
     final reasonController = TextEditingController();
@@ -306,11 +344,14 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           return AlertDialog(
             backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20)),
+              borderRadius: BorderRadius.circular(20),
+            ),
             title: Text(
               'Cancel Order #${order.orderId}',
               style: GoogleFonts.poppins(
-                  color: textColor, fontWeight: FontWeight.bold),
+                color: textColor,
+                fontWeight: FontWeight.bold,
+              ),
             ),
             content: TextField(
               controller: reasonController,
@@ -320,17 +361,22 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 labelText: 'Reason',
                 hintText: 'Why is this order being cancelled?',
                 hintStyle: GoogleFonts.inter(
-                    color: AppThemeColors.textSecondary(dialogContext)),
+                  color: AppThemeColors.textSecondary(dialogContext),
+                ),
                 border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext),
-                child: Text('Close',
-                    style: TextStyle(
-                        color: AppThemeColors.textSecondary(dialogContext))),
+                child: Text(
+                  'Close',
+                  style: TextStyle(
+                    color: AppThemeColors.textSecondary(dialogContext),
+                  ),
+                ),
               ),
               ElevatedButton(
                 onPressed: () {
@@ -342,7 +388,8 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                   backgroundColor: primaryRed,
                   foregroundColor: Colors.white,
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: const Text('Confirm Cancel'),
               ),
@@ -353,22 +400,25 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
 
       if (reason == null || reason.trim().isEmpty) return;
 
-      await supabase.from('orders').update({
-        'status': 'cancelled',
-        'cancelled_by_role': 'admin',
-        'admin_cancel_reason': reason.trim(),
-      }).eq('id', order.orderId);
+      await supabase
+          .from('orders')
+          .update({
+            'status': 'cancelled',
+            'cancelled_by_role': 'admin',
+            'admin_cancel_reason': reason.trim(),
+          })
+          .eq('id', order.orderId);
 
       await _loadOrders();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Order cancelled by admin')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Order cancelled by admin')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to cancel order: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to cancel order: $e')));
     } finally {
       reasonController.dispose();
     }
@@ -382,24 +432,31 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
         return AlertDialog(
           backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(20)),
+            borderRadius: BorderRadius.circular(20),
+          ),
           title: Text(
             'Complete Order #${order.orderId}?',
             style: GoogleFonts.poppins(
-                color: textColor, fontWeight: FontWeight.bold),
+              color: textColor,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           content: Text(
             'Mark this order as completed? This releases the payout to the seller and cannot be undone.',
             style: GoogleFonts.inter(
-                color: AppThemeColors.textSecondary(dialogContext),
-                height: 1.5),
+              color: AppThemeColors.textSecondary(dialogContext),
+              height: 1.5,
+            ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: Text('Cancel',
-                  style: TextStyle(
-                      color: AppThemeColors.textSecondary(dialogContext))),
+              child: Text(
+                'Cancel',
+                style: TextStyle(
+                  color: AppThemeColors.textSecondary(dialogContext),
+                ),
+              ),
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(dialogContext, true),
@@ -407,7 +464,8 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 backgroundColor: Colors.green,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12)),
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
               child: const Text('Mark Completed'),
             ),
@@ -421,46 +479,325 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
     try {
       await supabase
           .from('orders')
-          .update({'status': 'completed'})
+          .update({
+            'status': 'completed',
+            'delivery_confirmed_at': DateTime.now().toIso8601String(),
+            'delivered_by_role': 'escrow',
+          })
           .eq('id', order.orderId);
 
       await _loadOrders();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Order marked as completed — payout released')),
+        const SnackBar(
+          content: Text('Order marked as completed — payout released'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to complete order: $e')));
+    }
+  }
+
+  Future<void> _editOrderDetails(AdminOrderItemModel order) async {
+    final nameController = TextEditingController(text: order.customerName);
+    final emailController = TextEditingController(text: order.customerEmail);
+    final phoneController = TextEditingController(text: order.phoneNumber);
+    final addr1Controller = TextEditingController(text: order.shippingAddress);
+    final addr2Controller = TextEditingController(text: order.addressLine2);
+    final cityController = TextEditingController(text: order.city);
+    final stateController = TextEditingController(text: order.state);
+    final zipController = TextEditingController(text: order.zipcode);
+    String selectedStatus = order.orderStatus;
+
+    final statuses = [
+      'pending',
+      'paid',
+      'confirmed',
+      'shipped',
+      'delivered',
+      'completed',
+      'cancelled',
+    ];
+
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        final textColor = AppThemeColors.textPrimary(dialogContext);
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: AppThemeColors.elevatedSurface(dialogContext),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              title: Text(
+                'Edit Order #${order.orderId} Details',
+                style: GoogleFonts.poppins(
+                  color: textColor,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                ),
+              ),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      DropdownButtonFormField<String>(
+                        initialValue: selectedStatus,
+                        dropdownColor: AppThemeColors.elevatedSurface(
+                          dialogContext,
+                        ),
+                        decoration: InputDecoration(
+                          labelText: 'Order Status',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        style: GoogleFonts.inter(color: textColor),
+                        items: statuses.map((status) {
+                          return DropdownMenuItem<String>(
+                            value: status,
+                            child: Text(status.toUpperCase()),
+                          );
+                        }).toList(),
+                        onChanged: (val) {
+                          if (val != null) {
+                            setDialogState(() {
+                              selectedStatus = val;
+                            });
+                          }
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: nameController,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Customer Name',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: emailController,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Customer Email',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: phoneController,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Phone Number',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: addr1Controller,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Address Line 1',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: addr2Controller,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'Address Line 2',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: cityController,
+                        style: GoogleFonts.inter(color: textColor),
+                        decoration: InputDecoration(
+                          labelText: 'City',
+                          labelStyle: TextStyle(
+                            color: AppThemeColors.textSecondary(dialogContext),
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: stateController,
+                              style: GoogleFonts.inter(color: textColor),
+                              decoration: InputDecoration(
+                                labelText: 'State',
+                                labelStyle: TextStyle(
+                                  color: AppThemeColors.textSecondary(
+                                    dialogContext,
+                                  ),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: zipController,
+                              style: GoogleFonts.inter(color: textColor),
+                              decoration: InputDecoration(
+                                labelText: 'Zip Code',
+                                labelStyle: TextStyle(
+                                  color: AppThemeColors.textSecondary(
+                                    dialogContext,
+                                  ),
+                                ),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: Text(
+                    'Cancel',
+                    style: TextStyle(
+                      color: AppThemeColors.textSecondary(dialogContext),
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryRed,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                  child: const Text('Save Details'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (saved != true) return;
+
+    try {
+      await supabase
+          .from('orders')
+          .update({
+            'status': selectedStatus,
+            'customer_name': nameController.text.trim(),
+            'customer_email': emailController.text.trim(),
+            'phone_number': phoneController.text.trim(),
+            'shipping_address': addr1Controller.text.trim(),
+            'address_line2': addr2Controller.text.trim(),
+            'city': cityController.text.trim(),
+            'state': stateController.text.trim(),
+            'zipcode': zipController.text.trim(),
+          })
+          .eq('id', order.orderId);
+
+      await _loadOrders();
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to complete order: $e')),
+        const SnackBar(content: Text('Order details updated successfully')),
       );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to update details: $e')));
     }
   }
 
   Color _statusColor(String status) {
     switch (status) {
-      case 'delivered': return Colors.green;
-      case 'completed': return Colors.teal;
-      case 'cancelled': return Colors.red;
-      case 'shipped':   return Colors.blue;
-      case 'confirmed': return Colors.orange;
-      default:          return Colors.grey;
+      case 'delivered':
+        return Colors.green;
+      case 'completed':
+        return Colors.teal;
+      case 'cancelled':
+        return Colors.red;
+      case 'shipped':
+        return Colors.blue;
+      case 'confirmed':
+        return Colors.orange;
+      default:
+        return Colors.grey;
     }
   }
 
   IconData _statusIcon(String status) {
     switch (status) {
-      case 'delivered': return Icons.local_shipping_outlined;
-      case 'completed': return Icons.verified_outlined;
-      case 'cancelled': return Icons.cancel_outlined;
-      case 'shipped':   return Icons.local_post_office_outlined;
-      case 'confirmed': return Icons.thumb_up_outlined;
-      default:          return Icons.hourglass_empty_rounded;
+      case 'delivered':
+        return Icons.local_shipping_outlined;
+      case 'completed':
+        return Icons.verified_outlined;
+      case 'cancelled':
+        return Icons.cancel_outlined;
+      case 'shipped':
+        return Icons.local_post_office_outlined;
+      case 'confirmed':
+        return Icons.thumb_up_outlined;
+      default:
+        return Icons.hourglass_empty_rounded;
     }
   }
 
   Widget _buildEscrowStatus(AdminOrderItemModel order) {
-    final secondaryText = AppThemeColors.textSecondary(context);
     final textColor = AppThemeColors.textPrimary(context);
 
     return Container(
@@ -495,14 +832,17 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           const SizedBox(height: 12),
           _escrowActorRow('Buyer', order.buyerConfirmed, order.buyerProofUrl),
           const SizedBox(height: 8),
-          _escrowActorRow('Seller', order.sellerConfirmed, order.sellerProofUrl),
+          _escrowActorRow(
+            'Seller',
+            order.sellerConfirmed,
+            order.sellerProofUrl,
+          ),
         ],
       ),
     );
   }
 
   Widget _escrowActorRow(String label, bool confirmed, String? proofUrl) {
-    final textColor = AppThemeColors.textPrimary(context);
     final secondaryText = AppThemeColors.textSecondary(context);
 
     return Row(
@@ -566,7 +906,10 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 icon: const Icon(Icons.close, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
               ),
-              title: const Text('Proof of Escrow', style: TextStyle(color: Colors.white)),
+              title: const Text(
+                'Proof of Escrow',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
             ClipRRect(
               borderRadius: BorderRadius.circular(12),
@@ -575,7 +918,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                   url,
                   loadingBuilder: (context, child, progress) {
                     if (progress == null) return child;
-                    return const Center(child: CircularProgressIndicator(color: primaryRed));
+                    return const Center(
+                      child: CircularProgressIndicator(color: primaryRed),
+                    );
                   },
                 ),
               ),
@@ -596,14 +941,16 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
         elevation: 0,
         centerTitle: true,
         leading: IconButton(
-          icon:
-              Icon(Icons.arrow_back_ios_rounded, color: textColor, size: 20),
+          icon: Icon(Icons.arrow_back_ios_rounded, color: textColor, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
           'Orders',
           style: GoogleFonts.poppins(
-              color: textColor, fontWeight: FontWeight.w700, fontSize: 18),
+            color: textColor,
+            fontWeight: FontWeight.w700,
+            fontSize: 18,
+          ),
         ),
         actions: [
           if (!_isLoading)
@@ -611,8 +958,10 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
               padding: const EdgeInsets.only(right: 16),
               child: Center(
                 child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: primaryRed.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(10),
@@ -620,9 +969,10 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                   child: Text(
                     '${_orders.length}',
                     style: GoogleFonts.poppins(
-                        color: primaryRed,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13),
+                      color: primaryRed,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
                   ),
                 ),
               ),
@@ -648,23 +998,30 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.error_outline_rounded,
-                  size: 48,
-                  color: AppThemeColors.textSecondary(context)),
+              Icon(
+                Icons.error_outline_rounded,
+                size: 48,
+                color: AppThemeColors.textSecondary(context),
+              ),
               const SizedBox(height: 12),
-              Text(_errorMessage!,
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.inter(
-                      color: AppThemeColors.textSecondary(context),
-                      height: 1.5)),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  color: AppThemeColors.textSecondary(context),
+                  height: 1.5,
+                ),
+              ),
               const SizedBox(height: 18),
               ElevatedButton(
                 onPressed: _loadOrders,
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: primaryRed,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12))),
+                  backgroundColor: primaryRed,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
                 child: const Text('Retry'),
               ),
             ],
@@ -683,16 +1040,20 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 color: primaryRed.withValues(alpha: 0.08),
                 shape: BoxShape.circle,
               ),
-              child: Icon(Icons.receipt_long_outlined,
-                  size: 48, color: primaryRed.withValues(alpha: 0.6)),
+              child: Icon(
+                Icons.receipt_long_outlined,
+                size: 48,
+                color: primaryRed.withValues(alpha: 0.6),
+              ),
             ),
             const SizedBox(height: 16),
             Text(
               'No orders yet',
               style: GoogleFonts.poppins(
-                  color: AppThemeColors.textSecondary(context),
-                  fontSize: 16,
-                  fontWeight: FontWeight.w500),
+                color: AppThemeColors.textSecondary(context),
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ],
         ),
@@ -708,10 +1069,8 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
   Widget _buildOrderCard(AdminOrderItemModel order) {
     final textColor = AppThemeColors.textPrimary(context);
     final secondaryText = AppThemeColors.textSecondary(context);
-    final buyerName =
-        _buyerNames[order.buyerId] ?? 'Buyer';
-    final sellerName =
-        _sellerNames[order.sellerId] ?? 'Seller';
+    final buyerName = _buyerNames[order.buyerId] ?? 'Buyer';
+    final sellerName = _sellerNames[order.sellerId] ?? 'Seller';
     final statusColor = _statusColor(order.orderStatus);
 
     return Container(
@@ -741,12 +1100,14 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                     width: 60,
                     height: 60,
                     color: AppThemeColors.elevatedSurface(context),
-                    child: order.productImage != null &&
+                    child:
+                        order.productImage != null &&
                             order.productImage!.isNotEmpty
-                        ? Image.network(order.productImage!,
+                        ? Image.network(
+                            order.productImage!,
                             fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                _imgPlaceholder())
+                            errorBuilder: (_, err, st) => _imgPlaceholder(),
+                          )
                         : _imgPlaceholder(),
                   ),
                 ),
@@ -769,7 +1130,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                       Text(
                         'Order #${order.orderId}',
                         style: GoogleFonts.inter(
-                            color: secondaryText, fontSize: 12),
+                          color: secondaryText,
+                          fontSize: 12,
+                        ),
                       ),
                     ],
                   ),
@@ -777,7 +1140,9 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 // Status badge
                 Container(
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 5),
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: statusColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(10),
@@ -785,8 +1150,11 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(_statusIcon(order.orderStatus),
-                          color: statusColor, size: 13),
+                      Icon(
+                        _statusIcon(order.orderStatus),
+                        color: statusColor,
+                        size: 13,
+                      ),
                       const SizedBox(width: 4),
                       Text(
                         order.orderStatus.toUpperCase(),
@@ -820,17 +1188,14 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
                 const SizedBox(width: 6),
                 Text(
                   '× ${order.quantity}',
-                  style: GoogleFonts.inter(
-                      color: secondaryText, fontSize: 13),
+                  style: GoogleFonts.inter(color: secondaryText, fontSize: 13),
                 ),
                 const Spacer(),
-                Icon(Icons.payment_rounded,
-                    size: 14, color: secondaryText),
+                Icon(Icons.payment_rounded, size: 14, color: secondaryText),
                 const SizedBox(width: 4),
                 Text(
                   order.paymentMethod,
-                  style: GoogleFonts.inter(
-                      color: secondaryText, fontSize: 12),
+                  style: GoogleFonts.inter(color: secondaryText, fontSize: 12),
                 ),
               ],
             ),
@@ -838,11 +1203,11 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
 
           // ── Divider ──
           Padding(
-            padding: const EdgeInsets.symmetric(
-                horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Divider(
-                height: 1,
-                color: AppThemeColors.elevatedSurface(context)),
+              height: 1,
+              color: AppThemeColors.elevatedSurface(context),
+            ),
           ),
 
           // ── Details ──
@@ -850,93 +1215,157 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
             padding: const EdgeInsets.fromLTRB(14, 0, 14, 0),
             child: Column(
               children: [
-                _infoRow(Icons.person_outline_rounded, 'Buyer', buyerName,
-                    textColor, secondaryText),
-                const SizedBox(height: 6),
-                _infoRow(Icons.storefront_outlined, 'Seller', sellerName,
-                    textColor, secondaryText),
+                _infoRow(
+                  Icons.person_outline_rounded,
+                  'Buyer',
+                  buyerName,
+                  textColor,
+                  secondaryText,
+                ),
+                _infoRow(
+                  Icons.storefront_outlined,
+                  'Seller',
+                  sellerName,
+                  textColor,
+                  secondaryText,
+                ),
                 if (order.customerName.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  _infoRow(Icons.badge_outlined, 'Customer',
-                      order.customerName, textColor, secondaryText),
+                  _infoRow(
+                    Icons.badge_outlined,
+                    'Customer',
+                    order.customerName,
+                    textColor,
+                    secondaryText,
+                  ),
+                ],
+                if (order.customerEmail.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _infoRow(
+                    Icons.email_outlined,
+                    'Email',
+                    order.customerEmail,
+                    textColor,
+                    secondaryText,
+                  ),
+                ],
+                if (order.phoneNumber.trim().isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _infoRow(
+                    Icons.phone_outlined,
+                    'Phone',
+                    order.phoneNumber,
+                    textColor,
+                    secondaryText,
+                  ),
                 ],
                 if (order.shippingAddress.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  _infoRow(Icons.location_on_outlined, 'Address',
-                      _fullAddress(order), textColor, secondaryText),
+                  _infoRow(
+                    Icons.location_on_outlined,
+                    'Address',
+                    _fullAddress(order),
+                    textColor,
+                    secondaryText,
+                  ),
                 ],
                 if (order.orderStatus == 'cancelled' &&
                     order.cancelledByRole == 'admin' &&
                     order.adminCancelReason.trim().isNotEmpty) ...[
                   const SizedBox(height: 6),
-                  _infoRow(Icons.info_outline_rounded, 'Admin Note',
-                      order.adminCancelReason, textColor, secondaryText),
+                  _infoRow(
+                    Icons.info_outline_rounded,
+                    'Admin Note',
+                    order.adminCancelReason,
+                    textColor,
+                    secondaryText,
+                  ),
                 ],
                 const SizedBox(height: 6),
                 _infoRow(
-                    Icons.access_time_rounded,
-                    'Date',
-                    order.createdAt
-                        .toLocal()
-                        .toString()
-                        .split('.')
-                        .first,
-                    textColor,
-                    secondaryText,
-                    muted: true),
+                  Icons.access_time_rounded,
+                  'Date',
+                  order.createdAt.toLocal().toString().split('.').first,
+                  textColor,
+                  secondaryText,
+                  muted: true,
+                ),
               ],
             ),
           ),
 
           // ── Escrow Status ──
-          if (order.orderStatus == 'delivered' || (order.buyerConfirmed || order.sellerConfirmed))
+          if (order.orderStatus == 'delivered' ||
+              (order.buyerConfirmed || order.sellerConfirmed))
             _buildEscrowStatus(order),
 
           // ── Action buttons ──
-          if (_canAdminComplete(order) || _canAdminCancel(order))
-            Padding(
-              padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-              child: Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  if (_canAdminComplete(order))
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _completeOrder(order),
-                        icon: const Icon(Icons.verified_outlined, size: 16),
-                        label: const Text('Mark as Completed'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.teal,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+            child: Column(
+              children: [
+                if (_canAdminComplete(order) || _canAdminCancel(order)) ...[
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      if (_canAdminComplete(order))
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _completeOrder(order),
+                            icon: const Icon(Icons.verified_outlined, size: 16),
+                            label: const Text('Mark as Completed'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.teal,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  if (_canAdminCancel(order))
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _cancelOrderAsAdmin(order),
-                        icon: const Icon(Icons.cancel_outlined, size: 16),
-                        label: const Text('Cancel Order'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: primaryRed,
-                          side: const BorderSide(color: primaryRed),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          padding: const EdgeInsets.symmetric(vertical: 10),
+                      if (_canAdminCancel(order))
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _cancelOrderAsAdmin(order),
+                            icon: const Icon(Icons.cancel_outlined, size: 16),
+                            label: const Text('Cancel Order'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: primaryRed,
+                              side: const BorderSide(color: primaryRed),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
                 ],
-              ),
-            )
-          else
-            const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _editOrderDetails(order),
+                    icon: const Icon(Icons.edit_note_rounded, size: 18),
+                    label: const Text('Edit Details & Status'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blueAccent,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -945,6 +1374,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
   String _fullAddress(AdminOrderItemModel order) {
     return [
       order.shippingAddress,
+      if (order.addressLine2.trim().isNotEmpty) order.addressLine2,
       if (order.city.trim().isNotEmpty) order.city,
       if (order.state.trim().isNotEmpty) order.state,
       if (order.zipcode.trim().isNotEmpty) order.zipcode,
@@ -952,28 +1382,36 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
   }
 
   Widget _imgPlaceholder() => Center(
-        child: Icon(Icons.inventory_2_outlined,
-            color: primaryRed.withValues(alpha: 0.4), size: 26),
-      );
+    child: Icon(
+      Icons.inventory_2_outlined,
+      color: primaryRed.withValues(alpha: 0.4),
+      size: 26,
+    ),
+  );
 
-  Widget _infoRow(IconData icon, String label, String value, Color textColor,
-      Color secondaryText,
-      {bool muted = false}) {
+  Widget _infoRow(
+    IconData icon,
+    String label,
+    String value,
+    Color textColor,
+    Color secondaryText, {
+    bool muted = false,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon,
-            size: 15,
-            color: muted ? AppThemeColors.textMuted(context) : secondaryText),
+        Icon(
+          icon,
+          size: 15,
+          color: muted ? AppThemeColors.textMuted(context) : secondaryText,
+        ),
         const SizedBox(width: 8),
         SizedBox(
           width: 70,
           child: Text(
             label,
             style: GoogleFonts.inter(
-              color: muted
-                  ? AppThemeColors.textMuted(context)
-                  : secondaryText,
+              color: muted ? AppThemeColors.textMuted(context) : secondaryText,
               fontSize: 12,
               fontWeight: FontWeight.w600,
             ),
@@ -983,9 +1421,7 @@ class _AdminOrdersPageState extends State<AdminOrdersPage> {
           child: Text(
             value,
             style: GoogleFonts.inter(
-              color: muted
-                  ? AppThemeColors.textMuted(context)
-                  : textColor,
+              color: muted ? AppThemeColors.textMuted(context) : textColor,
               fontSize: 12,
             ),
           ),

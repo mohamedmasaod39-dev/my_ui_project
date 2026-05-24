@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:my_ui_project/theme/app_theme_colors.dart';
+import 'dart:async';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -10,12 +13,110 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
-  bool _isPasswordVisible = false;
+  static const Color primaryRed = Color(0xFFDB4444);
+
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+
+  bool _isLoading = false;
+  bool _isSocialLoading = false;
+  bool _obscurePassword = true;
+
+  SupabaseClient get _supabase => Supabase.instance.client;
+  late final StreamSubscription<AuthState> _authStateSubscription;
+
+  @override
+  void initState() {
+    super.initState();
+    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+      final AuthChangeEvent event = data.event;
+      if (event == AuthChangeEvent.signedIn) {
+        if (mounted) {
+          // Navigate to home after successful login
+          Navigator.of(context).pushReplacementNamed('/home');
+        }
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _authStateSubscription.cancel();
+    _emailController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _signIn() async {
+    if (_isLoading) return;
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter your email and password.')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      await _supabase.auth.signInWithPassword(
+        email: email,
+        password: password,
+      );
+      // Navigation is handled by _authStateSubscription
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Login error: ${error.message}')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('An unexpected error occurred: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  Future<void> _signInWithProvider(OAuthProvider provider) async {
+    if (_isSocialLoading) return;
+
+    setState(() => _isSocialLoading = true);
+
+    try {
+      await _supabase.auth.signInWithOAuth(
+        provider,
+        redirectTo: 'io.supabase.flutter://login-callback',
+      );
+      // Navigation is handled by _authStateSubscription
+    } on AuthException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message)),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Social sign in failed: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSocialLoading = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
           children: [
@@ -23,7 +124,7 @@ class _LoginPageState extends State<LoginPage> {
             Stack(
               children: [
                 Container(
-                  height: 300,
+                  height: 250,
                   decoration: const BoxDecoration(
                     color: Color(0xFFDB4444),
                     borderRadius: BorderRadius.only(
@@ -32,7 +133,7 @@ class _LoginPageState extends State<LoginPage> {
                   ),
                 ),
                 Positioned(
-                  top: 100,
+                  top: 50,
                   left: 40,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -47,7 +148,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       Text(
                         "Listables E-commerce App",
-                        style: GoogleFonts.inter(
+                        style: GoogleFonts.poppins(
                           color: Colors.white.withOpacity(0.8),
                           fontSize: 18,
                         ),
@@ -64,29 +165,28 @@ class _LoginPageState extends State<LoginPage> {
                 children: [
                   const SizedBox(height: 20),
 
-                  // 2. EMAIL INPUT
-                  _buildCustomInput(
-                    label: "Email Address",
-                    hint: "example@gmail.com",
-                    icon: Icons.email_outlined,
+                  _buildInput(
+                    "Email",
+                    Icons.email_outlined,
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
                   ),
                   const SizedBox(height: 25),
 
-                  // 3. PASSWORD INPUT
-                  _buildCustomInput(
-                    label: "Password",
-                    hint: "••••••••",
-                    icon: Icons.lock_outline,
-                    isPassword: true,
+                  _buildInput(
+                    "Password",
+                    Icons.lock_outline,
+                    controller: _passwordController,
+                    isPass: true,
                   ),
 
                   const SizedBox(height: 15),
                   Align(
                     alignment: Alignment.centerRight,
                     child: Text(
-                      "Forgot Password?",
+                      "Forgot Password?", // TODO: Implement forgot password functionality
                       style: GoogleFonts.inter(
-                        color: const Color(0xFFDB4444),
+                        color: primaryRed,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -110,8 +210,7 @@ class _LoginPageState extends State<LoginPage> {
                       ],
                     ),
                     child: ElevatedButton(
-                      onPressed: () =>
-                          Navigator.pushReplacementNamed(context, '/home'),
+                      onPressed: _isLoading ? null : _signIn,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFFDB4444),
                         shape: RoundedRectangleBorder(
@@ -119,12 +218,16 @@ class _LoginPageState extends State<LoginPage> {
                         ),
                       ),
                       child: Text(
-                        "LOG IN",
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
+                        _isLoading
+                            ? const CircularProgressIndicator(color: Colors.white)
+                            : Text(
+                                "LOG IN",
+                                style: GoogleFonts.inter(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -133,18 +236,55 @@ class _LoginPageState extends State<LoginPage> {
 
                   // 5. SOCIAL LOGINS
                   Text(
-                    "Or sign in with",
-                    style: GoogleFonts.inter(color: Colors.grey),
+                    "Or continue with",
+                    style: GoogleFonts.inter(
+                      color: AppThemeColors.textSecondary(context),
+                    ),
                   ),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _socialIconButton(FontAwesomeIcons.google, Colors.red),
+                      _socialIconButton(
+                        FontAwesomeIcons.google,
+                        Colors.red,
+                        () => _signInWithProvider(OAuthProvider.google),
+                      ),
                       const SizedBox(width: 20),
-                      _socialIconButton(FontAwesomeIcons.apple, Colors.black),
+                      _socialIconButton(
+                        FontAwesomeIcons.apple,
+                        Colors.black,
+                        () => _signInWithProvider(OAuthProvider.apple),
+                      ),
                       const SizedBox(width: 20),
-                      _socialIconButton(FontAwesomeIcons.facebook, Colors.blue),
+                      _socialIconButton(
+                        FontAwesomeIcons.facebook,
+                        Colors.blue,
+                        () => _signInWithProvider(OAuthProvider.facebook),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 30),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        "Don't have an account? ",
+                        style: GoogleFonts.inter(
+                          color: AppThemeColors.textSecondary(context),
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () =>
+                            Navigator.of(context).pushReplacementNamed('/signup'),
+                        child: const Text(
+                          "Sign Up",
+                          style: TextStyle(
+                            color: primaryRed,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ],
@@ -158,66 +298,81 @@ class _LoginPageState extends State<LoginPage> {
 
   // --- SENIOR DEV UI HELPERS ---
 
-  Widget _buildCustomInput({
-    required String label,
-    required String hint,
-    required IconData icon,
-    bool isPassword = false,
+  Widget _buildInput(
+    String hint,
+    IconData icon, {
+    required TextEditingController controller,
+    bool isPass = false,
+    TextInputType keyboardType = TextInputType.text,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: GoogleFonts.inter(
-            fontWeight: FontWeight.w600,
-            fontSize: 14,
-            color: Colors.black87,
-          ),
+    final textColor = AppThemeColors.textPrimary(context);
+
+    return TextField(
+      controller: controller,
+      keyboardType: keyboardType,
+      obscureText: isPass ? _obscurePassword : false,
+      style: GoogleFonts.inter(color: textColor),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: GoogleFonts.inter(
+          color: AppThemeColors.textSecondary(context),
         ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFFF5F5F5),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: TextField(
-            obscureText: isPassword && !_isPasswordVisible,
-            decoration: InputDecoration(
-              hintText: hint,
-              prefixIcon: Icon(icon, color: Colors.grey),
-              suffixIcon: isPassword
-                  ? IconButton(
-                      icon: Icon(
-                        _isPasswordVisible
-                            ? Icons.visibility
-                            : Icons.visibility_off,
-                        color: Colors.grey,
-                      ),
-                      onPressed: () {
-                        setState(
-                          () => _isPasswordVisible = !_isPasswordVisible,
-                        );
-                      },
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding: const EdgeInsets.all(18),
-            ),
-          ),
+        prefixIcon: Icon(icon, color: AppThemeColors.textSecondary(context)),
+        suffixIcon: isPass
+            ? IconButton(
+                icon: Icon(
+                  _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  color: AppThemeColors.textSecondary(context),
+                ),
+                onPressed: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+              )
+            : null,
+        filled: true,
+        fillColor: AppThemeColors.surface(context),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(15),
+          borderSide: BorderSide.none,
         ),
-      ],
+      ),
     );
   }
 
-  Widget _socialIconButton(IconData icon, Color color) {
+  Widget _socialIconButton(IconData icon, Color color, VoidCallback onPressed) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      width: 56,
+      height: 56,
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade200),
+        color: AppThemeColors.isDark(context)
+            ? const Color(0xFF1B1D24)
+            : Colors.white,
         borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05,
+            ),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+        border: Border.all(
+          color: AppThemeColors.isDark(context)
+              ? Colors.white12
+              : Colors.grey.shade200,
+        ),
       ),
-      child: FaIcon(icon, color: color, size: 24),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _isSocialLoading ? null : onPressed,
+          child: Center(child: FaIcon(icon, color: color, size: 24)),
+        ),
+      ),
     );
   }
 }

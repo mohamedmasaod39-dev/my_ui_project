@@ -238,6 +238,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         }
         break;
       case 'product':
+      case 'product_approval':
         final productId = notification.data['product_id'];
         if (productId != null) {
           try {
@@ -583,10 +584,123 @@ class _NotificationsPageState extends State<NotificationsPage> {
                 ],
               ),
             ),
+            // ── Approve / Revoke buttons for product_approval notifications ──
+            if (notification.type == 'product_approval' &&
+                !notification.isDismissed)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _approveProduct(notification),
+                        icon: const Icon(Icons.check_circle_outline, size: 16),
+                        label: const Text('Approve'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () => _revokeProduct(notification),
+                        icon: const Icon(Icons.cancel_outlined, size: 16),
+                        label: const Text('Revoke'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.red,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
     );
+  }
+
+  // ─── Admin: Approve / Revoke product listing ───────────────────────────────
+
+  Future<void> _approveProduct(NotificationModel notification) async {
+    final productId = notification.data['product_id'];
+    if (productId == null) return;
+    try {
+      await supabase
+          .from('products')
+          .update({'validated': true, 'status': 'active'})
+          .eq('id', productId);
+      // Notify seller
+      final sellerId = notification.data['seller_id'];
+      if (sellerId != null) {
+        await supabase.from('notifications').insert({
+          'user_id': sellerId,
+          'sender_id': supabase.auth.currentUser?.id,
+          'title': 'Product Approved',
+          'body': 'Your listing has been approved and is now live.',
+          'type': 'product',
+          'data': {'product_id': productId},
+        });
+      }
+      await _dismissNotification(notification);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Product approved and listed.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to approve: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _revokeProduct(NotificationModel notification) async {
+    final productId = notification.data['product_id'];
+    if (productId == null) return;
+    try {
+      await supabase
+          .from('products')
+          .update({'validated': false, 'status': 'hidden'})
+          .eq('id', productId);
+      // Notify seller
+      final sellerId = notification.data['seller_id'];
+      if (sellerId != null) {
+        await supabase.from('notifications').insert({
+          'user_id': sellerId,
+          'sender_id': supabase.auth.currentUser?.id,
+          'title': 'Product Revoked',
+          'body': 'Your listing has been revoked by the admin.',
+          'type': 'product',
+          'data': {'product_id': productId},
+        });
+      }
+      await _dismissNotification(notification);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Product revoked and hidden.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to revoke: $e')),
+        );
+      }
+    }
   }
 
   String _formatTime(DateTime dt) {
@@ -601,19 +715,21 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   IconData _iconForType(String type) {
     switch (type) {
-      case 'message': return Icons.chat_bubble_outline_rounded;
-      case 'order':   return Icons.shopping_bag_outlined;
-      case 'offer':   return Icons.local_offer_outlined;
-      default:        return Icons.notifications_none_rounded;
+      case 'message':          return Icons.chat_bubble_outline_rounded;
+      case 'order':            return Icons.shopping_bag_outlined;
+      case 'offer':            return Icons.local_offer_outlined;
+      case 'product_approval': return Icons.pending_actions_outlined;
+      default:                 return Icons.notifications_none_rounded;
     }
   }
 
   Color _colorForType(String type) {
     switch (type) {
-      case 'message': return Colors.blue;
-      case 'order':   return Colors.orange;
-      case 'offer':   return Colors.green;
-      default:        return Colors.grey;
+      case 'message':          return Colors.blue;
+      case 'order':            return Colors.orange;
+      case 'offer':            return Colors.green;
+      case 'product_approval': return Colors.purple;
+      default:                 return Colors.grey;
     }
   }
 }

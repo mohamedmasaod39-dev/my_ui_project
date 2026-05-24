@@ -46,17 +46,19 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
           .select()
           .eq('id', sellerId)
           .maybeSingle();
-      
+
       // Load products
       final productsData = await supabase
           .from('products')
           .select()
           .eq('seller_id', sellerId)
-          .eq('active', true)
+          .inFilter('status', ['active', 'sold'])
           .eq('validated', true);
-      
+
       final productsList = (productsData as List)
-          .map((item) => Product.fromMap(Map<String, dynamic>.from(item as Map)))
+          .map(
+            (item) => Product.fromMap(Map<String, dynamic>.from(item as Map)),
+          )
           .toList();
 
       // Load reviews - using a safer join syntax or fallback
@@ -64,7 +66,9 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
       try {
         final reviewsData = await supabase
             .from('reviews')
-            .select('rating, comment, created_at, profiles!inner(full_name, email)')
+            .select(
+              'rating, comment, created_at, profiles!inner(full_name, email)',
+            )
             .eq('seller_id', sellerId)
             .order('created_at', ascending: false);
 
@@ -81,7 +85,7 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
             .select('rating, comment, created_at, buyer_id')
             .eq('seller_id', sellerId)
             .order('created_at', ascending: false);
-            
+
         reviewsList = (reviewsData as List).map((item) {
           final r = Map<String, dynamic>.from(item as Map);
           r['buyer_name'] = 'A buyer'; // Default name since join failed
@@ -92,7 +96,9 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
       double avg = 0.0;
       if (reviewsList.isNotEmpty) {
         final sum = reviewsList.fold<double>(
-            0.0, (prev, element) => prev + (element['rating'] as num).toDouble());
+          0.0,
+          (prev, element) => prev + (element['rating'] as num).toDouble(),
+        );
         avg = sum / reviewsList.length;
       }
 
@@ -155,7 +161,8 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
       );
     }
 
-    final shopName = _profile?['shop_name'] ?? _profile?['full_name'] ?? 'Seller';
+    final shopName =
+        _profile?['shop_name'] ?? _profile?['full_name'] ?? 'Seller';
     final bio = _profile?['bio'] ?? '';
     final location = _profile?['location'] ?? '';
     final avatarUrl = _profile?['avatar_url'];
@@ -192,7 +199,11 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                       ? NetworkImage(avatarUrl)
                       : null,
                   child: avatarUrl == null || avatarUrl.isEmpty
-                      ? Icon(Icons.storefront, size: 40, color: secondaryTextColor)
+                      ? Icon(
+                          Icons.storefront,
+                          size: 40,
+                          color: secondaryTextColor,
+                        )
                       : null,
                 ),
                 const SizedBox(width: 20),
@@ -212,7 +223,11 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                         const SizedBox(height: 4),
                         Row(
                           children: [
-                            Icon(Icons.location_on_outlined, size: 16, color: secondaryTextColor),
+                            Icon(
+                              Icons.location_on_outlined,
+                              size: 16,
+                              color: secondaryTextColor,
+                            ),
                             const SizedBox(width: 4),
                             Text(
                               location,
@@ -230,7 +245,9 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                           const Icon(Icons.star, color: Colors.amber, size: 18),
                           const SizedBox(width: 4),
                           Text(
-                            _avgRating > 0 ? _avgRating.toStringAsFixed(1) : 'New',
+                            _avgRating > 0
+                                ? _avgRating.toStringAsFixed(1)
+                                : 'New',
                             style: GoogleFonts.inter(
                               color: textColor,
                               fontWeight: FontWeight.bold,
@@ -238,9 +255,7 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                           ),
                           Text(
                             ' (${_reviews.length} reviews)',
-                            style: GoogleFonts.inter(
-                              color: secondaryTextColor,
-                            ),
+                            style: GoogleFonts.inter(color: secondaryTextColor),
                           ),
                         ],
                       ),
@@ -273,11 +288,18 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
               Center(
                 child: Column(
                   children: [
-                    Icon(Icons.person_off_outlined, size: 64, color: secondaryTextColor),
+                    Icon(
+                      Icons.person_off_outlined,
+                      size: 64,
+                      color: secondaryTextColor,
+                    ),
                     const SizedBox(height: 16),
                     Text(
                       'Seller information not found',
-                      style: GoogleFonts.poppins(color: secondaryTextColor, fontSize: 16),
+                      style: GoogleFonts.poppins(
+                        color: secondaryTextColor,
+                        fontSize: 16,
+                      ),
                     ),
                   ],
                 ),
@@ -286,7 +308,7 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
             const SizedBox(height: 32),
             if (_products.isNotEmpty) ...[
               Text(
-                'Active Listings',
+                'Listings',
                 style: GoogleFonts.poppins(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -306,6 +328,7 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                 itemCount: _products.length,
                 itemBuilder: (context, index) {
                   final product = _products[index];
+                  final isUnavailable = product.isUnavailable;
                   return GestureDetector(
                     onTap: () => Navigator.pushNamed(
                       context,
@@ -316,21 +339,59 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                       decoration: BoxDecoration(
                         color: AppThemeColors.surface(context),
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: AppThemeColors.border(context)),
+                        border: Border.all(
+                          color: AppThemeColors.border(context),
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Expanded(
-                            child: ClipRRect(
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-                              child: product.image != null
-                                  ? Image.network(
-                                      product.image!,
-                                      width: double.infinity,
-                                      fit: BoxFit.cover,
-                                    )
-                                  : Container(color: Colors.grey.withValues(alpha: 0.2)),
+                            child: Stack(
+                              children: [
+                                ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(16),
+                                  ),
+                                  child: product.image != null
+                                      ? Image.network(
+                                          product.image!,
+                                          width: double.infinity,
+                                          height: double.infinity,
+                                          fit: BoxFit.cover,
+                                        )
+                                      : Container(
+                                          color: Colors.grey.withValues(
+                                            alpha: 0.2,
+                                          ),
+                                        ),
+                                ),
+                                if (isUnavailable)
+                                  Positioned(
+                                    top: 8,
+                                    left: 8,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: Colors.black87,
+                                        borderRadius: BorderRadius.circular(
+                                          999,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        product.availabilityLabel,
+                                        style: GoogleFonts.inter(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
                           ),
                           Padding(
@@ -351,7 +412,9 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                                 Text(
                                   '${product.currency} ${product.price.toStringAsFixed(0)}',
                                   style: GoogleFonts.poppins(
-                                    color: primaryRed,
+                                    color: isUnavailable
+                                        ? Colors.grey
+                                        : primaryRed,
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -386,7 +449,9 @@ class _PublicSellerProfilePageState extends State<PublicSellerProfilePage> {
                   final rating = review['rating'] as int? ?? 5;
                   final comment = review['comment'] as String? ?? '';
                   final buyerName = review['buyer_name'] as String? ?? 'Buyer';
-                  final date = DateTime.tryParse(review['created_at']?.toString() ?? '');
+                  final date = DateTime.tryParse(
+                    review['created_at']?.toString() ?? '',
+                  );
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

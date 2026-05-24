@@ -23,7 +23,7 @@ class _SearchPageState extends State<SearchPage> {
   List<Product> _allProducts = [];
   List<Product> _filteredProducts = [];
   List<Map<String, dynamic>> _categories = [
-    {'id': 0, 'name': 'All'}
+    {'id': 0, 'name': 'All'},
   ];
 
   @override
@@ -39,11 +39,11 @@ class _SearchPageState extends State<SearchPage> {
     final baseline = [
       {'id': 0, 'name': 'All'},
       {'id': 1, 'name': 'Electronics'},
-      {'id': 2, 'name': 'Fashion for Men'},
-      {'id': 3, 'name': 'Women'},
-      {'id': 4, 'name': 'Kids'},
-      {'id': 5, 'name': 'Watches'},
-      {'id': 6, 'name': 'Extras'},
+      {'id': 2, 'name': 'Gaming'},
+      {'id': 3, 'name': 'Home'},
+      {'id': 4, 'name': 'Fashion'},
+      {'id': 5, 'name': 'Sports'},
+      {'id': 6, 'name': 'Other'},
     ];
 
     if (!mounted) return;
@@ -68,9 +68,8 @@ class _SearchPageState extends State<SearchPage> {
       final response = await supabase
           .from('products')
           .select()
-          .eq('status', 'active')
+          .inFilter('status', ['active', 'sold'])
           .eq('validated', true)
-          .gt('stock_qty', 0)
           .order('created_at', ascending: false);
 
       final loadedProducts = (response as List)
@@ -131,11 +130,7 @@ class _SearchPageState extends State<SearchPage> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios,
-            color: textColor,
-            size: 20,
-          ),
+          icon: Icon(Icons.arrow_back_ios, color: textColor, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         title: Container(
@@ -188,9 +183,7 @@ class _SearchPageState extends State<SearchPage> {
               ),
             ),
           ),
-          Expanded(
-            child: _buildBody(),
-          ),
+          Expanded(child: _buildBody()),
         ],
       ),
     );
@@ -236,7 +229,8 @@ class _SearchPageState extends State<SearchPage> {
         childAspectRatio: 0.75,
       ),
       itemCount: _filteredProducts.length,
-      itemBuilder: (context, index) => _buildSearchCard(_filteredProducts[index]),
+      itemBuilder: (context, index) =>
+          _buildSearchCard(_filteredProducts[index]),
     );
   }
 
@@ -251,10 +245,10 @@ class _SearchPageState extends State<SearchPage> {
         });
         _applyFilters();
       },
-        child: Container(
-          margin: const EdgeInsets.only(right: 10),
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: BoxDecoration(
+      child: Container(
+        margin: const EdgeInsets.only(right: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        decoration: BoxDecoration(
           color: isSelected
               ? primaryRed
               : AppThemeColors.elevatedSurface(context),
@@ -279,40 +273,70 @@ class _SearchPageState extends State<SearchPage> {
 
   Widget _buildSearchCard(Product product) {
     final textColor = AppThemeColors.textPrimary(context);
-    final isOutOfStock = !product.isBuyable;
+    final isOutOfStock = product.isUnavailable;
 
     return GestureDetector(
       onTap: () => Navigator.pushNamed(context, '/details', arguments: product),
-        child: Container(
-          decoration: BoxDecoration(
+      child: Container(
+        decoration: BoxDecoration(
           color: AppThemeColors.surface(context),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Column(
           children: [
             Expanded(
-              child: Hero(
-                tag: product.tag,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: product.image != null && product.image!.isNotEmpty
-                      ? Image.network(
-                          product.image!,
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return const Icon(
-                              Icons.image_not_supported,
-                              size: 50,
-                              color: Colors.grey,
-                            );
-                          },
-                        )
-                      : const Icon(
-                          Icons.image,
-                          size: 50,
-                          color: Colors.grey,
+              child: Stack(
+                children: [
+                  Center(
+                    child: Hero(
+                      tag: product.tag,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child:
+                            product.image != null && product.image!.isNotEmpty
+                            ? Image.network(
+                                product.image!,
+                                fit: BoxFit.contain,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return const Icon(
+                                    Icons.image_not_supported,
+                                    size: 50,
+                                    color: Colors.grey,
+                                  );
+                                },
+                              )
+                            : const Icon(
+                                Icons.image,
+                                size: 50,
+                                color: Colors.grey,
+                              ),
+                      ),
+                    ),
+                  ),
+                  if (isOutOfStock)
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 6,
                         ),
-                ),
+                        decoration: BoxDecoration(
+                          color: Colors.black87,
+                          borderRadius: BorderRadius.circular(999),
+                        ),
+                        child: Text(
+                          product.availabilityLabel,
+                          style: GoogleFonts.inter(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             Padding(

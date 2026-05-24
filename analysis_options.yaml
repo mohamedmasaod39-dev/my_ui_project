@@ -11,6 +11,7 @@ include: package:flutter_lints/flutter.yaml
 
 analyzer:
   exclude:
+    - CODE_CHANGES_COMPREHENSIVE.dart
     - front/**
     - my_ui_project/**
     - build/**

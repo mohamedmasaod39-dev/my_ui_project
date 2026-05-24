@@ -27,6 +27,10 @@ class SellerOrderModel {
     required this.productTitle,
     required this.productImage,
     required this.buyerId,
+    this.buyerConfirmed = false,
+    this.sellerConfirmed = false,
+    this.buyerProofUrl,
+    this.sellerProofUrl,
   });
 
   final int id;
@@ -51,12 +55,32 @@ class SellerOrderModel {
   final String productTitle;
   final String? productImage;
   final String buyerId;
+  final bool buyerConfirmed;
+  final bool sellerConfirmed;
+  final String? buyerProofUrl;
+  final String? sellerProofUrl;
 
   factory SellerOrderModel.fromMap(Map<String, dynamic> map) {
     final rawPrice = map['price'];
     final rawLineTotal = map['line_total_price'];
     final order = map['orders'] as Map<String, dynamic>?;
     final product = map['products'] as Map<String, dynamic>?;
+
+    final confirmations = (order?['escrow_confirmations'] as List?) ?? [];
+    bool bConf = false;
+    bool sConf = false;
+    String? bProof;
+    String? sProof;
+
+    for (final c in confirmations) {
+      if (c['role'] == 'buyer') {
+        bConf = c['confirmed'] == true;
+        bProof = c['proof_image_url'];
+      } else if (c['role'] == 'seller') {
+        sConf = c['confirmed'] == true;
+        sProof = c['proof_image_url'];
+      }
+    }
 
     return SellerOrderModel(
       id: map['id'] as int,
@@ -87,6 +111,10 @@ class SellerOrderModel {
       productImage:
           (map['image_url'] ?? product?['main_image_url'])?.toString(),
       buyerId: (order?['buyer_id'] ?? '').toString(),
+      buyerConfirmed: bConf,
+      sellerConfirmed: sConf,
+      buyerProofUrl: bProof,
+      sellerProofUrl: sProof,
     );
   }
 }
@@ -138,6 +166,16 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
             }
           },
         )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'escrow_confirmations',
+          callback: (_) {
+            if (mounted) {
+              _loadOrders();
+            }
+          },
+        )
         .subscribe();
   }
 
@@ -160,7 +198,7 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       final response = await supabase
           .from('order_items')
           .select(
-            'id, order_id, price, quantity, product_name, image_url, line_total_price, currency, orders(status, customer_name, customer_email, phone_number, shipping_address, address_line2, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry, currency, buyer_id), products(title, main_image_url)',
+            'id, order_id, price, quantity, product_name, image_url, line_total_price, currency, orders(status, customer_name, customer_email, phone_number, shipping_address, address_line2, city, state, zipcode, payment_method, card_holder_name, card_last4, card_expiry, currency, buyer_id, escrow_confirmations(role, confirmed, proof_image_url)), products(title, main_image_url)',
           )
           .eq('seller_id', user.id)
           .order('id', ascending: false);
@@ -205,101 +243,152 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
     }
   }
 
-  List<String> _nextStatuses(String currentStatus) {
-    switch (currentStatus) {
-      case 'pending':
-        return ['confirmed', 'cancelled'];
-      case 'confirmed':
-        return ['shipped', 'cancelled'];
-      case 'shipped':
-        return ['delivered'];
-      default:
-        return [];
-    }
+
+
+  Widget _buildSellerEscrowStatusCard(SellerOrderModel order) {
+    final textColor = AppThemeColors.textPrimary(context);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppThemeColors.elevatedSurface(context),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: (order.buyerConfirmed && order.sellerConfirmed)
+              ? Colors.green.withValues(alpha: 0.3)
+              : Colors.orange.withValues(alpha: 0.2),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.security_rounded, size: 16, color: primaryRed),
+              const SizedBox(width: 8),
+              Text(
+                'Escrow Status',
+                style: GoogleFonts.poppins(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _escrowActorRow('Your confirmation', order.sellerConfirmed),
+          const SizedBox(height: 8),
+          _escrowActorRow('Buyer confirmation', order.buyerConfirmed),
+          const SizedBox(height: 16),
+          if (order.orderStatus != 'completed' && order.orderStatus != 'cancelled') ...[
+            if (!order.sellerConfirmed)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await Navigator.pushNamed(
+                      context,
+                      '/escrow',
+                      arguments: {'orderId': order.orderId, 'role': 'seller'},
+                    );
+                    _loadOrders();
+                  },
+                  icon: const Icon(Icons.upload_file, size: 16),
+                  label: const Text('Confirm & Upload Proof'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: primaryRed,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              )
+            else if (order.buyerConfirmed)
+              Center(
+                child: Text(
+                  'Both confirmed — awaiting admin to release payment.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              )
+            else
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                  const SizedBox(width: 6),
+                  Text(
+                    'You confirmed dispatch',
+                    style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: Colors.green,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+          ] else if (order.orderStatus == 'completed') ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 16),
+                const SizedBox(width: 6),
+                Text(
+                  'Payment released to you',
+                  style: GoogleFonts.inter(
+                    fontSize: 12,
+                    color: Colors.green,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
-  Future<void> _updateOrderStatus(SellerOrderModel order, String newStatus) async {
-    try {
-      await supabase
-          .from('orders')
-          .update({'status': newStatus})
-          .eq('id', order.orderId);
-
-      if (newStatus == 'delivered') {
-        final orderItems = await supabase
-            .from('order_items')
-            .select('product_id, quantity')
-            .eq('order_id', order.orderId);
-
-        for (final item in orderItems) {
-          final productId = item['product_id'];
-          final qty = item['quantity'] as int;
-
-          final product = await supabase
-              .from('products')
-              .select('stock_qty')
-              .eq('id', productId)
-              .maybeSingle();
-
-          if (product != null) {
-            final currentStock = product['stock_qty'] as int;
-            final remainingStock = currentStock - qty;
-
-            await supabase
-                .from('products')
-                .update({
-                  'stock_qty': remainingStock < 0 ? 0 : remainingStock,
-                  'status': remainingStock <= 0 ? 'sold' : 'active',
-                })
-                .eq('id', productId);
-          }
-        }
-      }
-
-      final refreshedOrderItem = await supabase
-          .from('order_items')
-          .select('orders(status)')
-          .eq('id', order.id)
-          .maybeSingle();
-
-      final refreshedOrder = refreshedOrderItem?['orders'] as Map<String, dynamic>?;
-      final refreshedStatus = (refreshedOrder?['status'] ?? '').toString();
-
-      if (refreshedStatus != newStatus) {
-        throw Exception('Order status was not saved.');
-      }
-
-      // Notify buyer
-      try {
-        await supabase.from('notifications').insert({
-          'user_id': order.buyerId,
-          'sender_id': supabase.auth.currentUser?.id,
-          'title': 'Order Updated',
-          'body': 'Your order for ${order.productTitle} is now $newStatus.',
-          'type': 'order',
-        });
-      } catch (_) {}
-
-      await _loadOrders();
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Order updated to $newStatus')),
-      );
-    } catch (e) {
-      await _loadOrders();
-      if (!mounted) return;
-      final message = e is PostgrestException && e.message.isNotEmpty
-          ? e.message
-          : e.toString();
-      ScaffoldMessenger.of(context).hideCurrentSnackBar();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
+  Widget _escrowActorRow(String label, bool confirmed) {
+    return Row(
+      children: [
+        Text(
+          '$label:',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            color: AppThemeColors.textSecondary(context),
+            fontWeight: FontWeight.w500,
+          ),
         ),
-      );
-    }
+        const SizedBox(width: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+          decoration: BoxDecoration(
+            color: confirmed
+                ? Colors.green.withValues(alpha: 0.1)
+                : Colors.grey.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            confirmed ? 'Done' : 'Pending',
+            style: GoogleFonts.inter(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: confirmed ? Colors.green : Colors.grey,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -382,7 +471,6 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
       itemCount: _orders.length,
       itemBuilder: (context, index) {
         final order = _orders[index];
-        final nextStatuses = _nextStatuses(order.orderStatus);
         final textColor = AppThemeColors.textPrimary(context);
         return Container(
           margin: const EdgeInsets.only(bottom: 16),
@@ -515,37 +603,38 @@ class _SellerOrdersPageState extends State<SellerOrdersPage> {
                 ],
               ),
                 const SizedBox(height: 14),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    ...nextStatuses.map(
-                      (status) => ElevatedButton(
-                        onPressed: () => _updateOrderStatus(order, status),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: status == 'cancelled'
-                              ? Colors.black
-                              : primaryRed,
-                          foregroundColor: Colors.white,
+                if (order.orderStatus == 'cancelled') ...[  
+                  // Cancelled – no further actions.
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: Colors.red.withValues(alpha: 0.25),
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cancel_outlined, color: Colors.red, size: 18),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Order cancelled – no further actions',
+                          style: GoogleFonts.inter(
+                            color: Colors.red,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                          ),
                         ),
-                        child: Text(status.toUpperCase()),
-                      ),
+                      ],
                     ),
-                    ElevatedButton.icon(
-                      onPressed: () => Navigator.pushNamed(
-                        context,
-                        '/escrow',
-                        arguments: {'orderId': order.orderId, 'role': 'seller'},
-                      ),
-                      icon: const Icon(Icons.check_circle_outline, size: 18),
-                      label: const Text('CONFIRM SHIPMENT'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ] else ...[  
+                  _buildSellerEscrowStatusCard(order),
+                ],
               ],
             ),
         );

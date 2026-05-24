@@ -40,14 +40,7 @@ class _FAQPageState extends State<FAQPage> {
               ),
               onPressed: () => Navigator.pop(context),
             ),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.search, color: Colors.white),
-                onPressed: () {
-                  // Search functionality could be added here
-                },
-              ),
-            ],
+
             flexibleSpace: FlexibleSpaceBar(
               centerTitle: true,
               title: Text(

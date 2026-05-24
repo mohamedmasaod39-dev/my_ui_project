@@ -4,7 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:my_ui_project/utils/app_icon_mapper.dart';
-import 'package:my_ui_project/main.dart';
+import 'main.dart';
 
 class Product {
   final int id;
@@ -40,11 +40,17 @@ class Product {
   });
 
   factory Product.fromMap(Map<String, dynamic> map) {
+    int? parseInt(dynamic value) {
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      return int.tryParse('${value ?? ''}');
+    }
+
     final rawId = map['id'];
     final rawPrice = map['price'];
     final rawPriceMinor = map['price_minor'];
     final rawStockQty = map['stock_qty'];
-    final rawListingDetails = map['listing_details'];
+    final rawListingDetails = map['listing_details'] ?? map['details'];
     final isActive = map['active'];
 
     final listingDetails = rawListingDetails is Map
@@ -52,8 +58,16 @@ class Product {
         : <String, dynamic>{};
 
     String description = (map['description'] ?? '').toString();
-    if (description.contains('— Additional details —')) {
-      final parts = description.split('— Additional details —');
+    const detailSeparators = [
+      '— Additional details —',
+      '\u00e2\u20ac\u201d Additional details \u00e2\u20ac\u201d',
+      '-- Additional details --',
+    ];
+    final detailSeparator = detailSeparators
+        .where((separator) => description.contains(separator))
+        .firstOrNull;
+    if (detailSeparator != null) {
+      final parts = description.split(detailSeparator);
       description = parts[0].trim();
       final extrasRaw = parts.length > 1 ? parts[1].trim() : '';
       for (final line in extrasRaw.split('\n')) {
@@ -83,8 +97,8 @@ class Product {
     }
 
     return Product(
-      id: rawId is int ? rawId : int.tryParse('${rawId ?? 0}') ?? 0,
-      categoryId: map['category_id'] as int?,
+      id: parseInt(rawId) ?? 0,
+      categoryId: parseInt(map['category_id']),
       sellerId: map['seller_id']?.toString(),
       title: (map['title'] ?? map['name'] ?? '').toString(),
       price: price,
@@ -94,9 +108,7 @@ class Product {
       description: description,
       status: status,
       currency: (map['currency'] ?? 'EGP').toString(),
-      stockQty: rawStockQty is int
-          ? rawStockQty
-          : int.tryParse('${rawStockQty ?? 1}') ?? 1,
+      stockQty: parseInt(rawStockQty) ?? 1,
       slug: map['slug']?.toString(),
       validated: map['validated'] is bool ? map['validated'] as bool : true,
       listingDetails: listingDetails,
@@ -114,6 +126,14 @@ class Product {
   }
 
   bool get isBuyable => status.toLowerCase() == 'active' && stockQty > 0;
+
+  bool get isUnavailable => !isBuyable;
+
+  String get availabilityLabel {
+    if (stockQty <= 0) return 'Sold';
+    if (status.toLowerCase() == 'sold') return 'Sold';
+    return status.isEmpty ? 'Available' : status;
+  }
 }
 
 class IndexPage extends StatefulWidget {
@@ -220,7 +240,9 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
       await _wishlistService.toggle(productId);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
   }
@@ -264,17 +286,18 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
       _isLoading = true;
     });
     try {
+      // Include both 'active' AND 'sold' products so sold items remain visible
+      // with a 'Sold' badge instead of disappearing from the homepage.
       var query = supabase
           .from('products')
           .select()
-          .eq('status', 'active')
-          .eq('validated', true)
-          .gt('stock_qty', 0);
-          
+          .inFilter('status', ['active', 'sold'])
+          .eq('validated', true);
+
       if (_selectedCategoryId != null) {
         query = query.eq('category_id', _selectedCategoryId!);
       }
-      
+
       final response = await query.order('created_at', ascending: false);
 
       var loadedProducts = (response as List)
@@ -284,7 +307,8 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
       if (_selectedSubcategory != null) {
         loadedProducts = loadedProducts.where((p) {
           final subcat = p.listingDetails['subcategory']?.toString();
-          return subcat != null && subcat.toLowerCase() == _selectedSubcategory!.toLowerCase();
+          return subcat != null &&
+              subcat.toLowerCase() == _selectedSubcategory!.toLowerCase();
         }).toList();
       }
 
@@ -307,14 +331,14 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
   }
 
   Future<void> _loadCategories() async {
-    // Hardcoded to match website baseline
+    // Hardcoded to match website categories
     final baselineCategories = [
       {'id': 1, 'name': 'Electronics', 'icon': 'devices'},
-      {'id': 2, 'name': 'Fashion for Men', 'icon': 'male'},
-      {'id': 3, 'name': 'Women', 'icon': 'female'},
-      {'id': 4, 'name': 'Kids', 'icon': 'child_care'},
-      {'id': 5, 'name': 'Watches', 'icon': 'watch'},
-      {'id': 6, 'name': 'Extras', 'icon': 'more_horiz'},
+      {'id': 2, 'name': 'Gaming', 'icon': 'sports_esports'},
+      {'id': 3, 'name': 'Home', 'icon': 'home'},
+      {'id': 4, 'name': 'Fashion', 'icon': 'shopping_bag'},
+      {'id': 5, 'name': 'Sports', 'icon': 'sports'},
+      {'id': 6, 'name': 'Other', 'icon': 'more_horiz'},
     ];
 
     if (!mounted) return;
@@ -330,7 +354,6 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
           .toList();
     });
   }
-
 
   String _formatPrice(Product product) {
     return '${product.currency} ${product.price.toStringAsFixed(0)}';
@@ -377,9 +400,7 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(20, 60, 20, 30),
-              decoration: const BoxDecoration(
-                color: primaryRed,
-              ),
+              decoration: const BoxDecoration(color: primaryRed),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -393,7 +414,10 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                   ),
                   Text(
                     'Find what you love',
-                    style: GoogleFonts.inter(color: Colors.white70, fontSize: 14),
+                    style: GoogleFonts.inter(
+                      color: Colors.white70,
+                      fontSize: 14,
+                    ),
                   ),
                 ],
               ),
@@ -403,8 +427,14 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 children: [
                   ListTile(
-                    leading: const Icon(Icons.grid_view_rounded, color: primaryRed),
-                    title: Text('All Categories', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                    leading: const Icon(
+                      Icons.grid_view_rounded,
+                      color: primaryRed,
+                    ),
+                    title: Text(
+                      'All Categories',
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                    ),
                     onTap: () {
                       setState(() {
                         _selectedCategoryId = null;
@@ -415,77 +445,32 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                     },
                   ),
                   ListTile(
-                    leading: const Icon(Icons.favorite_outline, color: primaryRed),
-                    title: Text('My Wishlist', style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                    leading: const Icon(
+                      Icons.favorite_outline,
+                      color: primaryRed,
+                    ),
+                    title: Text(
+                      'My Wishlist',
+                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                    ),
                     onTap: () {
                       Navigator.pop(context);
                       Navigator.pushNamed(context, '/wishlist');
                     },
                   ),
                   const Divider(indent: 20, endIndent: 20),
-                    ..._categories.map((cat) {
-                      final id = cat['id'] as int?;
-                      final label = cat['label'] as String;
-                      final icon = cat['icon'] as IconData;
-                      final isFashion = label.toLowerCase().contains('fashion');
-
-                    if (isFashion) {
-                      return ExpansionTile(
-                        leading: Icon(icon, color: primaryRed),
-                        title: Text(label, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
-                        childrenPadding: const EdgeInsets.only(left: 40),
-                        children: [
-                          ListTile(
-                            title: const Text('All Fashion'),
-                            onTap: () {
-                              setState(() {
-                                _selectedCategoryId = id;
-                                _selectedSubcategory = null;
-                              });
-                              _loadProducts();
-                              Navigator.pop(context);
-                            },
-                          ),
-                          ListTile(
-                            title: const Text('Men'),
-                            onTap: () {
-                              setState(() {
-                                _selectedCategoryId = id;
-                                _selectedSubcategory = 'Men';
-                              });
-                              _loadProducts();
-                              Navigator.pop(context);
-                            },
-                          ),
-                          ListTile(
-                            title: const Text('Women'),
-                            onTap: () {
-                              setState(() {
-                                _selectedCategoryId = id;
-                                _selectedSubcategory = 'Women';
-                              });
-                              _loadProducts();
-                              Navigator.pop(context);
-                            },
-                          ),
-                          ListTile(
-                            title: const Text('Kids'),
-                            onTap: () {
-                              setState(() {
-                                _selectedCategoryId = id;
-                                _selectedSubcategory = 'Kids';
-                              });
-                              _loadProducts();
-                              Navigator.pop(context);
-                            },
-                          ),
-                        ],
-                      );
-                    }
+                  ..._categories.map((cat) {
+                    final id = cat['id'] as int?;
+                    final label = cat['label'] as String;
+                    final icon = cat['icon'] as IconData;
+                    // Fashion is shown as a plain item – no Men/Women/Kids subcategories
 
                     return ListTile(
                       leading: Icon(icon, color: primaryRed),
-                      title: Text(label, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+                      title: Text(
+                        label,
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                      ),
                       onTap: () {
                         setState(() {
                           _selectedCategoryId = id;
@@ -566,7 +551,11 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
           try {
             final user = supabase.auth.currentUser;
             if (user != null) {
-              await supabase.from('notifications').update({'is_read': true}).eq('user_id', user.id).eq('is_read', false);
+              await supabase
+                  .from('notifications')
+                  .update({'is_read': true})
+                  .eq('user_id', user.id)
+                  .eq('is_read', false);
             }
           } catch (_) {}
           _loadUnreadCount();
@@ -735,11 +724,7 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
         itemCount: _categories.length + 1,
         itemBuilder: (context, index) {
           if (index == 0) {
-            return _catItem(
-              Icons.all_inclusive,
-              'All',
-              null,
-            );
+            return _catItem(Icons.all_inclusive, 'All', null);
           }
           final category = _categories[index - 1];
           return _catItem(
@@ -771,7 +756,9 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
             Container(
               padding: const EdgeInsets.all(15),
               decoration: BoxDecoration(
-                color: isSelected ? primaryRed : AppThemeColors.surface(context),
+                color: isSelected
+                    ? primaryRed
+                    : AppThemeColors.surface(context),
                 borderRadius: BorderRadius.circular(15),
               ),
               child: Icon(icon, color: isSelected ? Colors.white : textColor),
@@ -782,7 +769,9 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
               style: GoogleFonts.poppins(
                 fontSize: 12,
                 fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? primaryRed : textColor.withValues(alpha: 0.9),
+                color: isSelected
+                    ? primaryRed
+                    : textColor.withValues(alpha: 0.9),
               ),
             ),
           ],
@@ -791,28 +780,8 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
     );
   }
 
-  Widget _buildSubcategoryFilters() {
-    final selectedCat = _categories.where((c) => c['id'] == _selectedCategoryId).firstOrNull;
-    if (selectedCat == null || selectedCat['label'].toString().toLowerCase() != 'fashion') {
-      return const SizedBox.shrink();
-    }
-    
-    final subcategories = ['Men', 'Women', 'Kids'];
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      child: Row(
-        children: [
-          _subcatChip('All', null),
-          const SizedBox(width: 10),
-          ...subcategories.map((sc) => Padding(
-            padding: const EdgeInsets.only(right: 10),
-            child: _subcatChip(sc, sc),
-          )),
-        ],
-      ),
-    );
-  }
+  // Subcategory filters removed – Fashion shows all items together.
+  Widget _buildSubcategoryFilters() => const SizedBox.shrink();
 
   Widget _subcatChip(String label, String? subcatValue) {
     final isSelected = _selectedSubcategory == subcatValue;
@@ -835,7 +804,9 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
         child: Text(
           label,
           style: GoogleFonts.inter(
-            color: isSelected ? Colors.white : AppThemeColors.textPrimary(context),
+            color: isSelected
+                ? Colors.white
+                : AppThemeColors.textPrimary(context),
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
           ),
         ),
@@ -877,7 +848,7 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
   }
 
   Widget _buildModernProductCard(Product product) {
-    final isOutOfStock = !product.isBuyable;
+    final isOutOfStock = product.isUnavailable;
     final textColor = AppThemeColors.textPrimary(context);
 
     return Container(
@@ -928,7 +899,7 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                         borderRadius: BorderRadius.circular(999),
                       ),
                       child: Text(
-                        product.stockQty <= 0 ? 'Out' : 'Sold',
+                        product.availabilityLabel,
                         style: GoogleFonts.inter(
                           color: Colors.white,
                           fontSize: 11,
@@ -942,8 +913,12 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                   right: 5,
                   child: IconButton(
                     icon: Icon(
-                      _wishlistService.isFavorite(product.id) ? Icons.favorite : Icons.favorite_border,
-                      color: _wishlistService.isFavorite(product.id) ? primaryRed : textColor.withValues(alpha: 0.5),
+                      _wishlistService.isFavorite(product.id)
+                          ? Icons.favorite
+                          : Icons.favorite_border,
+                      color: _wishlistService.isFavorite(product.id)
+                          ? primaryRed
+                          : textColor.withValues(alpha: 0.5),
                       size: 20,
                     ),
                     onPressed: () => _toggleWishlist(product.id),

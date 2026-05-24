@@ -70,10 +70,7 @@ class _LaunchPageState extends State<LaunchPage> {
 
     if (!mounted) return;
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      Navigator.of(context).pushReplacementNamed(targetRoute);
-    });
+    Navigator.of(context).pushReplacementNamed(targetRoute);
   }
 
   @override

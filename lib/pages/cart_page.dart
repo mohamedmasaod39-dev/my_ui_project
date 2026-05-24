@@ -196,17 +196,8 @@ class _CartPageState extends State<CartPage> {
     return total;
   }
 
-  double get _shippingFee {
-    // Website Parity: On the cart page, shipping is displayed as "Free" (0)
-    // The actual fee is calculated and added only at the final checkout step.
-    return 0;
-  }
-
-  double _calculateActualShipping(double subtotal) {
-    if (subtotal <= 0) return 0;
-    final fee = subtotal * 0.01;
-    return fee < 100 ? 100 : fee; // max(100, subtotal * 0.01)
-  }
+  // Shipping is always free – displayed as Free in cart and stored as 0 at checkout.
+  double get _shippingFee => 0;
 
   double get _total => _subtotal + _shippingFee;
 
@@ -612,7 +603,7 @@ class _CartPageState extends State<CartPage> {
           throw Exception('You cannot buy your own product.');
         }
         if (!item.product.isBuyable) {
-          throw Exception('${item.product.title} is out of stock.');
+          throw Exception('${item.product.title} is sold.');
         }
         if (item.quantity > item.product.stockQty) {
           throw Exception(
@@ -624,27 +615,14 @@ class _CartPageState extends State<CartPage> {
       final createdOrderIds = <int>[];
       final groupedCartItems = _groupCartItemsBySeller();
 
-      final totalSubtotal = _subtotal;
-      final totalShipping = _calculateActualShipping(totalSubtotal);
-      int orderCount = 0;
-      double distributedShippingSum = 0;
-
       for (final sellerItems in groupedCartItems.values) {
-        orderCount++;
         final sellerTotal = sellerItems.fold<double>(
           0,
           (sum, item) => sum + (item.product.price * item.quantity),
         );
-        
-        // Distribute shipping proportionally
-        double sellerShipping;
-        if (orderCount == groupedCartItems.length) {
-          // Last seller gets the remainder to avoid rounding issues
-          sellerShipping = totalShipping - distributedShippingSum;
-        } else {
-          sellerShipping = (totalShipping * (sellerTotal / totalSubtotal));
-          distributedShippingSum += sellerShipping;
-        }
+
+        // Shipping is always free – sellerShipping is always 0
+        const double sellerShipping = 0;
 
         final insertedOrder = await supabase
             .from('orders')
@@ -653,7 +631,7 @@ class _CartPageState extends State<CartPage> {
               'seller_id': sellerItems.first.product.sellerId,
               'subtotal_price': sellerTotal,
               'shipping_price': sellerShipping,
-              'total_price': sellerTotal + sellerShipping,
+              'total_price': sellerTotal,
               'currency': sellerItems.first.product.currency,
               'shipping_address': address,
               'address_line2': addressLine2,
@@ -706,7 +684,8 @@ class _CartPageState extends State<CartPage> {
             'user_id': sellerItems.first.product.sellerId,
             'sender_id': user.id,
             'title': 'New Order Received',
-            'body': '$fullName placed an order for ${sellerItems.length} item(s).',
+            'body':
+                '$fullName placed an order for ${sellerItems.length} item(s).',
             'type': 'order',
             'data': {'order_id': orderId},
           });
@@ -718,9 +697,11 @@ class _CartPageState extends State<CartPage> {
               .from('profiles')
               .select('id')
               .eq('role', 'admin');
-          
-          final adminIds = (adminsResponse as List).map((a) => a['id']).toList();
-          
+
+          final adminIds = (adminsResponse as List)
+              .map((a) => a['id'])
+              .toList();
+
           for (final adminId in adminIds) {
             await supabase.from('notifications').insert({
               'user_id': adminId,
@@ -815,7 +796,7 @@ class _CartPageState extends State<CartPage> {
                 decoration: BoxDecoration(
                   color: isDark
                       ? AppThemeColors.secondarySurface(context)
-                      : Colors.black,
+                      : Colors.white,
                   borderRadius: const BorderRadius.only(
                     topLeft: Radius.circular(40),
                     topRight: Radius.circular(40),
@@ -835,12 +816,12 @@ class _CartPageState extends State<CartPage> {
                       _buildSummaryRow(
                         "Subtotal",
                         _formatPrice(_subtotal),
-                        Colors.white70,
+                        AppThemeColors.textPrimary(context),
                       ),
                       _buildSummaryRow(
                         "Shipping",
                         _shippingFee == 0 ? "Free" : _formatPrice(_shippingFee),
-                        Colors.white70,
+                        AppThemeColors.textPrimary(context),
                       ),
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 15),
@@ -855,7 +836,7 @@ class _CartPageState extends State<CartPage> {
                               Text(
                                 "Total Price",
                                 style: GoogleFonts.inter(
-                                  color: Colors.white70,
+                                  color: AppThemeColors.textSecondary(context),
                                 ),
                               ),
                               Text(

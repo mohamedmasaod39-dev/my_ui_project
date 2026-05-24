@@ -221,10 +221,12 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child: Row(
+        child: Column(
           children: [
-            // Product image / placeholder
-            ClipRRect(
+            Row(
+              children: [
+                // Product image / placeholder
+                ClipRRect(
               borderRadius: BorderRadius.circular(14),
               child: Container(
                 width: 64,
@@ -334,12 +336,10 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
               ),
             ),
           ],
-        ),
-      ),
-    ),
-    const SizedBox(height: 12),
-    Row(
-      children: [
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
         Expanded(
           child: OutlinedButton(
             onPressed: product.validated
@@ -363,10 +363,14 @@ class _AdminProductsPageState extends State<AdminProductsPage> {
             child: Text(product.validated ? 'Revoke' : 'Reject'),
           ),
         ),
-      ],
+              ],
+            ),
+          ],
+        ),
+      ),
     ),
   );
-}
+  }
 
   Widget _filterChip(String label, int index) {
     final isSelected = _selectedFilter == index;

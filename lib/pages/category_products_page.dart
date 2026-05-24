@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:my_ui_project/main.dart';
+import 'main.dart';
 import 'package:my_ui_project/pages/index_page.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
@@ -93,9 +93,8 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
           .from('products')
           .select()
           .eq('category_id', category['id'])
-          .eq('status', 'active')
-          .eq('validated', true)
-          .gt('stock_qty', 0);
+          .inFilter('status', ['active', 'sold'])
+          .eq('validated', true);
 
       final data = (response as List).map((e) => Product.fromMap(e)).toList();
 
@@ -138,12 +137,14 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
 
     final filtered = _products.where((product) {
       // Text search
-      final matchesText = query.isEmpty ||
+      final matchesText =
+          query.isEmpty ||
           product.title.toLowerCase().contains(query) ||
           product.description.toLowerCase().contains(query);
 
       // Sub-filter
-      final matchesFilter = _activeFilterValue == null ||
+      final matchesFilter =
+          _activeFilterValue == null ||
           (product.listingDetails[filterField]?.toString().trim() ==
               _activeFilterValue);
 
@@ -252,8 +253,9 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                     label: val,
                     selected: isSelected,
                     onTap: () {
-                      setState(() =>
-                          _activeFilterValue = isSelected ? null : val);
+                      setState(
+                        () => _activeFilterValue = isSelected ? null : val,
+                      );
                       _applyFilters();
                     },
                   );
@@ -282,9 +284,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
         decoration: BoxDecoration(
           color: selected ? primaryRed : AppThemeColors.surface(context),
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? primaryRed : Colors.transparent,
-          ),
+          border: Border.all(color: selected ? primaryRed : Colors.transparent),
         ),
         child: Text(
           label,
@@ -325,7 +325,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
       itemBuilder: (context, index) {
         final product = _filteredProducts[index];
         final isFav = wishlistService.isFavorite(product.id);
-        final isOutOfStock = !product.isBuyable;
+        final isOutOfStock = product.isUnavailable;
         final textColor = AppThemeColors.textPrimary(context);
 
         return Container(
@@ -353,16 +353,17 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                           child: Hero(
                             tag: product.tag,
                             child:
-                                product.image != null && product.image!.isNotEmpty
-                                    ? Image.network(
-                                        product.image!,
-                                        fit: BoxFit.contain,
-                                      )
-                                    : const Icon(
-                                        Icons.image_not_supported,
-                                        color: Colors.grey,
-                                        size: 48,
-                                      ),
+                                product.image != null &&
+                                    product.image!.isNotEmpty
+                                ? Image.network(
+                                    product.image!,
+                                    fit: BoxFit.contain,
+                                  )
+                                : const Icon(
+                                    Icons.image_not_supported,
+                                    color: Colors.grey,
+                                    size: 48,
+                                  ),
                           ),
                         ),
                       ),
@@ -399,7 +400,7 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                             borderRadius: BorderRadius.circular(999),
                           ),
                           child: Text(
-                            product.stockQty <= 0 ? 'Out' : 'Sold',
+                            product.availabilityLabel,
                             style: GoogleFonts.inter(
                               color: Colors.white,
                               fontSize: 11,
@@ -412,7 +413,10 @@ class _CategoryProductsPageState extends State<CategoryProductsPage>
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 child: GestureDetector(
                   onTap: () {
                     Navigator.pushNamed(

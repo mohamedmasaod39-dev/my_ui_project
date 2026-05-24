@@ -32,9 +32,13 @@ class _LoginPageState extends State<LoginPage> {
     super.initState();
     _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) {
       if (data.event == AuthChangeEvent.signedIn && data.session != null) {
-        _navigateForUser(data.session!.user);
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          _navigateForUser(data.session!.user);
+        }
       } else if (data.event == AuthChangeEvent.passwordRecovery) {
-        Navigator.pushReplacementNamed(context, '/reset_password');
+        if (mounted && ModalRoute.of(context)?.isCurrent == true) {
+          Navigator.pushReplacementNamed(context, '/reset_password');
+        }
       }
     });
   }
@@ -67,60 +71,96 @@ class _LoginPageState extends State<LoginPage> {
       _isEmailLoading = true;
     });
 
+    String? targetRoute;
     try {
       final profile = await _supabase
           .from('profiles')
           .select('role, full_name, email')
           .eq('id', user.id)
           .maybeSingle();
-      var role = (profile?['role'] ?? '').toString();
 
-      if (profile == null || role.isEmpty) {
+      var role = (profile?['role'] ?? '').toString();
+      var fullName = (profile?['full_name'] ?? '').toString();
+
+      // Retrieve missing role or name from metadata
+      final metaData = user.userMetadata ?? {};
+      final metaFullName = (metaData['full_name'] ?? '').toString();
+      final metaRole = (metaData['role'] ?? '').toString();
+
+      if (role.isEmpty && metaRole.isNotEmpty) {
+        role = metaRole;
+      }
+      if (role.isEmpty) {
         role = 'buyer';
+      }
+
+      if (fullName.isEmpty && metaFullName.isNotEmpty) {
+        fullName = metaFullName;
+      }
+
+      // Upsert if profile is missing, or role or full_name is empty
+      if (profile == null ||
+          (profile['role'] ?? '').toString().isEmpty ||
+          (profile['full_name'] ?? '').toString().isEmpty) {
         await _supabase.from('profiles').upsert({
           'id': user.id,
           'email': user.email,
           'role': role,
+          'full_name': fullName,
         });
       }
 
-      if (profile != null) {
-        final displayName = _profileDisplayName(
-          Map<String, dynamic>.from(profile),
+      // Remember in chat cache
+      final displayName = fullName.isNotEmpty ? fullName : _profileDisplayName(
+        Map<String, dynamic>.from(profile ?? {
+          'full_name': fullName,
+          'email': user.email,
+        }),
+      );
+      if (displayName.isNotEmpty) {
+        await ChatIdentityCache.instance.remember(
+          userId: user.id,
+          name: displayName,
         );
-        if (displayName.isNotEmpty) {
-          await ChatIdentityCache.instance.remember(
-            userId: user.id,
-            name: displayName,
-          );
-        }
       }
 
-      if (!mounted) return;
-
       if (role == 'admin') {
-        await Navigator.pushReplacementNamed(context, '/admin');
+        targetRoute = '/admin';
+        AppModeService.instance.setMode(
+          AppMode.buyer,
+        ); // Admin stays in buyer mode for now
       } else if (role == 'seller') {
         AppModeService.instance.setMode(AppMode.seller);
-        await Navigator.pushReplacementNamed(context, '/seller_home');
+        targetRoute = '/seller_home';
       } else {
         AppModeService.instance.setMode(AppMode.buyer);
-        await Navigator.pushReplacementNamed(context, '/home');
+        targetRoute = '/home';
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Navigation error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isNavigating = false;
-          _isEmailLoading = false;
-          _isSocialLoading = false;
-        });
-      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    if (targetRoute != null) {
+      final route = targetRoute; // Capture non-null value
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed(route);
+      });
+    }
+
+    if (mounted) {
+      setState(() {
+        _isNavigating = false;
+        _isEmailLoading = false;
+        _isSocialLoading = false;
+      });
     }
   }
 
@@ -476,17 +516,23 @@ class _LoginPageState extends State<LoginPage> {
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
-        color: AppThemeColors.isDark(context) ? const Color(0xFF1B1D24) : Colors.white,
+        color: AppThemeColors.isDark(context)
+            ? const Color(0xFF1B1D24)
+            : Colors.white,
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05),
+            color: Colors.black.withValues(
+              alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05,
+            ),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
         border: Border.all(
-          color: AppThemeColors.isDark(context) ? Colors.white12 : Colors.grey.shade200,
+          color: AppThemeColors.isDark(context)
+              ? Colors.white12
+              : Colors.grey.shade200,
         ),
       ),
       child: Material(
@@ -512,7 +558,11 @@ class _LoginPageState extends State<LoginPage> {
                   height: 24,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) {
-                    return const Icon(Icons.g_mobiledata, size: 30, color: Colors.blue);
+                    return const Icon(
+                      Icons.g_mobiledata,
+                      size: 30,
+                      color: Colors.blue,
+                    );
                   },
                 ),
                 const SizedBox(width: 12),

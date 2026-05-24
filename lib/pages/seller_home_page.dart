@@ -3,8 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import '../services/app_mode_service.dart';
-
 class SellerHomePage extends StatefulWidget {
   const SellerHomePage({super.key});
 
@@ -18,7 +16,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
   final supabase = Supabase.instance.client;
 
   bool _isLoading = true;
-  bool _isSwitchingMode = false;
   int _productCount = 0;
   int _activeCount = 0;
   int _unreadNotifications = 0;
@@ -127,7 +124,9 @@ class _SellerHomePageState extends State<SellerHomePage> {
       if (!mounted) return;
       setState(() {
         _productCount = products.length;
-        _activeCount = products.where((item) => item['status'] == 'active').length;
+        _activeCount = products
+            .where((item) => item['status'] == 'active')
+            .length;
         _isLoading = false;
       });
     } catch (_) {
@@ -144,7 +143,6 @@ class _SellerHomePageState extends State<SellerHomePage> {
     await _loadUnreadCount();
     await _loadUnreadMessagesCount();
   }
-
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +252,8 @@ class _SellerHomePageState extends State<SellerHomePage> {
                   ),
                   _ActionTile(
                     title: 'Profile',
-                    subtitle: 'Update your profile information and account settings.',
+                    subtitle:
+                        'Update your profile information and account settings.',
                     icon: Icons.person_outline,
                     onTap: () => _openPage('/profile'),
                   ),
@@ -286,9 +285,23 @@ class _SellerHomePageState extends State<SellerHomePage> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _navIcon(Icons.dashboard_outlined, true),
-          _navIconWithBadge(Icons.notifications_none, false, _unreadNotifications, () => _openPage('/notifications')),
-          _navIconWithBadge(Icons.chat_bubble_outline, false, _unreadMessages, () => _openPage('/messages')),
-          _navIcon(Icons.person_outline, false, onTap: () => _openPage('/profile')),
+          _navIconWithBadge(
+            Icons.notifications_none,
+            false,
+            _unreadNotifications,
+            () => _openPage('/notifications'),
+          ),
+          _navIconWithBadge(
+            Icons.chat_bubble_outline,
+            false,
+            _unreadMessages,
+            () => _openPage('/messages'),
+          ),
+          _navIcon(
+            Icons.person_outline,
+            false,
+            onTap: () => _openPage('/profile'),
+          ),
         ],
       ),
     );
@@ -305,7 +318,12 @@ class _SellerHomePageState extends State<SellerHomePage> {
     );
   }
 
-  Widget _navIconWithBadge(IconData icon, bool isActive, int count, VoidCallback onTap) {
+  Widget _navIconWithBadge(
+    IconData icon,
+    bool isActive,
+    int count,
+    VoidCallback onTap,
+  ) {
     return Badge(
       isLabelVisible: count > 0,
       label: Text('$count'),
@@ -333,7 +351,9 @@ class _StatCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 20),
       decoration: BoxDecoration(
-        color: highlight ? const Color(0xFFDB4444) : Theme.of(context).cardColor,
+        color: highlight
+            ? const Color(0xFFDB4444)
+            : Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(24),
       ),
       child: Column(
@@ -386,7 +406,10 @@ class _ActionTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(24),
       ),
       child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 10,
+        ),
         leading: CircleAvatar(
           radius: 24,
           backgroundColor: AppThemeColors.elevatedSurface(context),

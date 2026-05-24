@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 
 import '../services/app_mode_service.dart';
@@ -35,58 +34,10 @@ class _SignupPageState extends State<SignupPage> {
   @override
   void initState() {
     super.initState();
-    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) async {
-      if (data.event == AuthChangeEvent.signedIn && data.session != null) {
-        if (_isNavigating) return;
-        setState(() {
-          _isNavigating = true;
-          _isLoading = true;
-        });
-
-        try {
-          final user = data.session!.user;
-          final selectedRole = _selectedMode == AppMode.seller ? 'seller' : 'buyer';
-
-          final profile = await _supabase.from('profiles').select('role').eq('id', user.id).maybeSingle();
-          var role = (profile?['role'] ?? '').toString();
-
-          if (role.isEmpty) {
-            role = selectedRole;
-            final fullName = user.userMetadata?['full_name'] ?? user.userMetadata?['name'] ?? '';
-            await _supabase.from('profiles').upsert({
-              'id': user.id,
-              'email': user.email,
-              'role': role,
-              if (fullName.isNotEmpty) 'full_name': fullName,
-            });
-          }
-
-          AppModeService.instance.setMode(role == 'seller' ? AppMode.seller : AppMode.buyer);
-
-          if (!mounted) return;
-          if (role == 'admin') {
-            await Navigator.pushReplacementNamed(context, '/admin');
-          } else if (role == 'seller') {
-            await Navigator.pushReplacementNamed(context, '/seller_home');
-          } else {
-            await Navigator.pushReplacementNamed(context, '/home');
-          }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Navigation error: $e')),
-            );
-          }
-        } finally {
-          if (mounted) {
-            setState(() {
-              _isNavigating = false;
-              _isLoading = false;
-              _isSocialLoading = false;
-            });
-          }
-        }
-      }
+    // Only listen for auth changes to handle logout/login, not signup
+    _authStateSubscription = _supabase.auth.onAuthStateChange.listen((data) {
+      // Don't auto-navigate on signup - let the _signUp method handle it
+      // Only handle manual sign-in events if needed
     });
   }
 
@@ -163,33 +114,36 @@ class _SignupPageState extends State<SignupPage> {
         throw Exception('User was not created');
       }
 
-      // Create profile record
-      await _supabase.from('profiles').upsert({
-        'id': user.id,
-        'full_name': fullName,
-        'email': email,
-        'role': selectedRole,
-      });
-
       // Force sign out immediately to prevent auto-login
       await _supabase.auth.signOut();
 
       if (!mounted) return;
-      
+
+      // Show success notification at the bottom
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Account created! Please log in to continue.'),
+        SnackBar(
+          content: Text(
+            'Account created successfully',
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
           backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
         ),
       );
 
-      // Redirect to login page instead of home
-      Navigator.pushReplacementNamed(context, '/login');
+      // Redirect to login page immediately - use a callback to ensure navigation happens
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacementNamed('/login');
+      });
     } on AuthException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text(error.message)));
+      ).showSnackBar(SnackBar(content: Text('Signup error: ${error.message}')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -474,17 +428,23 @@ class _SignupPageState extends State<SignupPage> {
       width: double.infinity,
       height: 56,
       decoration: BoxDecoration(
-        color: AppThemeColors.isDark(context) ? const Color(0xFF1B1D24) : Colors.white,
+        color: AppThemeColors.isDark(context)
+            ? const Color(0xFF1B1D24)
+            : Colors.white,
         borderRadius: BorderRadius.circular(15),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05),
+            color: Colors.black.withValues(
+              alpha: AppThemeColors.isDark(context) ? 0.3 : 0.05,
+            ),
             blurRadius: 10,
             offset: const Offset(0, 4),
           ),
         ],
         border: Border.all(
-          color: AppThemeColors.isDark(context) ? Colors.white12 : Colors.grey.shade200,
+          color: AppThemeColors.isDark(context)
+              ? Colors.white12
+              : Colors.grey.shade200,
         ),
       ),
       child: Material(
@@ -510,7 +470,11 @@ class _SignupPageState extends State<SignupPage> {
                   height: 24,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) {
-                    return const Icon(Icons.g_mobiledata, size: 30, color: Colors.blue);
+                    return const Icon(
+                      Icons.g_mobiledata,
+                      size: 30,
+                      color: Colors.blue,
+                    );
                   },
                 ),
                 const SizedBox(width: 12),

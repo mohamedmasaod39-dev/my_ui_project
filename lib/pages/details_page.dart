@@ -27,6 +27,7 @@ class _DetailsPageState extends State<DetailsPage> {
     _loadUserRole();
     _wishlistService.favoriteIds.addListener(_onWishlistChanged);
   }
+
   Future<void> _loadUserRole() async {
     final user = supabase.auth.currentUser;
     if (user == null) return;
@@ -55,7 +56,9 @@ class _DetailsPageState extends State<DetailsPage> {
       await _wishlistService.toggle(product.id);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(e.toString())));
       }
     }
   }
@@ -83,15 +86,6 @@ class _DetailsPageState extends State<DetailsPage> {
     return '$currency ${price.toStringAsFixed(0)}';
   }
 
-
-  String? _normalizeUserId(String? value) {
-    final normalized = value?.trim();
-    if (normalized == null || normalized.isEmpty) {
-      return null;
-    }
-    return normalized;
-  }
-
   bool _isGenericChatName(String value) {
     final normalized = value.trim().toLowerCase();
     return normalized.isEmpty ||
@@ -115,7 +109,6 @@ class _DetailsPageState extends State<DetailsPage> {
     final localPart = email.split('@').first.trim();
     return localPart.isNotEmpty ? localPart : email;
   }
-
 
   Future<void> _addToCart(Product product) async {
     final messenger = appScaffoldMessengerKey.currentState;
@@ -158,7 +151,7 @@ class _DetailsPageState extends State<DetailsPage> {
           });
         }
         messenger?.showSnackBar(
-          const SnackBar(content: Text('This product is out of stock')),
+          const SnackBar(content: Text('This product is sold')),
         );
         return;
       }
@@ -234,7 +227,6 @@ class _DetailsPageState extends State<DetailsPage> {
     }
   }
 
-
   Future<void> _messageSeller(Product product) async {
     final messenger = appScaffoldMessengerKey.currentState;
 
@@ -304,7 +296,8 @@ class _DetailsPageState extends State<DetailsPage> {
             'user_id': product.sellerId!,
             'sender_id': user.id,
             'title': 'New Message',
-            'body': '$buyerName started a conversation with you regarding ${product.title}',
+            'body':
+                '$buyerName started a conversation with you regarding ${product.title}',
             'type': 'message',
           });
         } catch (_) {}
@@ -507,13 +500,15 @@ class _DetailsPageState extends State<DetailsPage> {
                         children: [
                           _infoChip(
                             icon: Icons.sell_outlined,
-                            label: product.status.toUpperCase(),
+                            label: product.isBuyable
+                                ? product.status.toUpperCase()
+                                : product.availabilityLabel.toUpperCase(),
                           ),
                           _infoChip(
                             icon: Icons.inventory_2_outlined,
                             label: product.stockQty > 0
                                 ? 'STOCK ${product.stockQty}'
-                                : 'OUT OF STOCK',
+                                : 'SOLD',
                           ),
                         ],
                       ),
@@ -553,7 +548,8 @@ class _DetailsPageState extends State<DetailsPage> {
                           runSpacing: 10,
                           children: product.listingDetails.entries
                               .where(
-                                (entry) => entry.value.toString().trim().isNotEmpty,
+                                (entry) =>
+                                    entry.value.toString().trim().isNotEmpty,
                               )
                               .map(
                                 (entry) => _detailChip(
@@ -569,14 +565,15 @@ class _DetailsPageState extends State<DetailsPage> {
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton.icon(
-                            onPressed: product.sellerId == null ||
+                            onPressed:
+                                product.sellerId == null ||
                                     product.sellerId!.trim().isEmpty
                                 ? null
                                 : () => Navigator.pushNamed(
-                                      context,
-                                      '/public_seller_profile',
-                                      arguments: product.sellerId,
-                                    ),
+                                    context,
+                                    '/public_seller_profile',
+                                    arguments: product.sellerId,
+                                  ),
                             icon: const Icon(Icons.storefront_outlined),
                             label: const Text('View Seller Profile'),
                             style: OutlinedButton.styleFrom(
@@ -623,9 +620,13 @@ class _DetailsPageState extends State<DetailsPage> {
               children: [
                 _circularAction(Icons.arrow_back, () => Navigator.pop(context)),
                 _circularAction(
-                  _wishlistService.isFavorite(product.id) ? Icons.favorite : Icons.favorite_border,
+                  _wishlistService.isFavorite(product.id)
+                      ? Icons.favorite
+                      : Icons.favorite_border,
                   _toggleWishlist,
-                  iconColor: _wishlistService.isFavorite(product.id) ? primaryRed : textColor,
+                  iconColor: _wishlistService.isFavorite(product.id)
+                      ? primaryRed
+                      : textColor,
                 ),
               ],
             ),
@@ -692,7 +693,7 @@ class _DetailsPageState extends State<DetailsPage> {
                         isOwnProduct
                             ? "Your Product"
                             : isSold
-                            ? "Sold"
+                            ? product.availabilityLabel
                             : "Add to Cart",
                         style: GoogleFonts.poppins(
                           fontWeight: FontWeight.bold,

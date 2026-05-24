@@ -99,11 +99,24 @@ class _AdminPageState extends State<AdminPage> {
 
       final results = await Future.wait([
         supabase.from('profiles').select('id').count(CountOption.exact),
-        supabase.from('profiles').select('id').eq('role', 'buyer').count(CountOption.exact),
-        supabase.from('profiles').select('id').eq('role', 'seller').count(CountOption.exact),
+        supabase
+            .from('profiles')
+            .select('id')
+            .eq('role', 'buyer')
+            .count(CountOption.exact),
+        supabase
+            .from('profiles')
+            .select('id')
+            .eq('role', 'seller')
+            .count(CountOption.exact),
         supabase.from('products').select('id').count(CountOption.exact),
         supabase.from('orders').select('id').count(CountOption.exact),
-        supabase.from('notifications').select('id').eq('user_id', user.id).eq('is_read', false).count(CountOption.exact),
+        supabase
+            .from('notifications')
+            .select('id')
+            .eq('user_id', user.id)
+            .eq('is_read', false)
+            .count(CountOption.exact),
       ]);
 
       if (!mounted) return;
@@ -129,7 +142,9 @@ class _AdminPageState extends State<AdminPage> {
   void _redirectUnauthorized(String routeName) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('You are not allowed to open the admin dashboard.')),
+      const SnackBar(
+        content: Text('You are not allowed to open the admin dashboard.'),
+      ),
     );
     Navigator.pushNamedAndRemoveUntil(context, routeName, (_) => false);
   }
@@ -143,7 +158,6 @@ class _AdminPageState extends State<AdminPage> {
   @override
   Widget build(BuildContext context) {
     final textColor = AppThemeColors.textPrimary(context);
-    final isDark = AppThemeColors.isDark(context);
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -169,76 +183,91 @@ class _AdminPageState extends State<AdminPage> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? _buildErrorView()
-              : RefreshIndicator(
-                  onRefresh: _loadAdminStats,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+          ? _buildErrorView()
+          : RefreshIndicator(
+              onRefresh: _loadAdminStats,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 20,
+                ),
+                children: [
+                  // Grid section for top 4 stats
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 16,
+                    mainAxisSpacing: 16,
+                    childAspectRatio: 1.3,
                     children: [
-                      // Grid section for top 4 stats
-                      GridView.count(
-                        shrinkWrap: true,
-                        physics: const NeverScrollableScrollPhysics(),
-                        crossAxisCount: 2,
-                        crossAxisSpacing: 16,
-                        mainAxisSpacing: 16,
-                        childAspectRatio: 1.3,
-                        children: [
-                          _buildStatCard(
-                            title: 'Users',
-                            value: '$_usersCount',
-                            onTap: () => Navigator.pushNamed(context, '/admin_users'),
-                          ),
-                          _buildStatCard(
-                            title: 'Buyers',
-                            value: '$_buyersCount',
-                            onTap: () => Navigator.pushNamed(context, '/admin_users', arguments: {'role': 'buyer'}),
-                          ),
-                          _buildStatCard(
-                            title: 'Sellers',
-                            value: '$_sellersCount',
-                            onTap: () => Navigator.pushNamed(context, '/admin_users', arguments: {'role': 'seller'}),
-                          ),
-                          _buildStatCard(
-                            title: 'Products',
-                            value: '$_productsCount',
-                            onTap: () => Navigator.pushNamed(context, '/admin_products'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      // Large card for Orders
                       _buildStatCard(
-                        title: 'Orders',
-                        value: '$_ordersCount',
-                        isWide: true,
-                        onTap: () => Navigator.pushNamed(context, '/admin_orders'),
+                        title: 'Users',
+                        value: '$_usersCount',
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/admin_users'),
                       ),
-                      const SizedBox(height: 32),
-                      
-                      // Bottom list section
-                      _buildMenuTile(
-                        title: 'All Orders',
-                        subtitle: 'Review every order between buyers and sellers.',
-                        icon: Icons.receipt_long_outlined,
-                        onTap: () => Navigator.pushNamed(context, '/admin_orders'),
+                      _buildStatCard(
+                        title: 'Buyers',
+                        value: '$_buyersCount',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/admin_users',
+                          arguments: {'role': 'buyer'},
+                        ),
                       ),
-                      _buildMenuTile(
-                        title: 'Admin Profile',
-                        subtitle: 'Open your profile without exposing seller-only actions.',
-                        icon: Icons.person_outline,
-                        onTap: () => Navigator.pushNamed(context, '/profile'),
+                      _buildStatCard(
+                        title: 'Sellers',
+                        value: '$_sellersCount',
+                        onTap: () => Navigator.pushNamed(
+                          context,
+                          '/admin_users',
+                          arguments: {'role': 'seller'},
+                        ),
                       ),
-                      _buildMenuTile(
-                        title: 'Notifications',
-                        subtitle: 'Review user-facing notifications and announcements.',
-                        icon: Icons.notifications_none,
-                        badgeCount: _unreadNotifications,
-                        onTap: () => Navigator.pushNamed(context, '/notifications'),
+                      _buildStatCard(
+                        title: 'Products',
+                        value: '$_productsCount',
+                        onTap: () =>
+                            Navigator.pushNamed(context, '/admin_products'),
                       ),
                     ],
                   ),
-                ),
+                  const SizedBox(height: 16),
+                  // Large card for Orders
+                  _buildStatCard(
+                    title: 'Orders',
+                    value: '$_ordersCount',
+                    isWide: true,
+                    onTap: () => Navigator.pushNamed(context, '/admin_orders'),
+                  ),
+                  const SizedBox(height: 32),
+
+                  // Bottom list section
+                  _buildMenuTile(
+                    title: 'All Orders',
+                    subtitle: 'Review every order between buyers and sellers.',
+                    icon: Icons.receipt_long_outlined,
+                    onTap: () => Navigator.pushNamed(context, '/admin_orders'),
+                  ),
+                  _buildMenuTile(
+                    title: 'Admin Profile',
+                    subtitle:
+                        'Open your profile without exposing seller-only actions.',
+                    icon: Icons.person_outline,
+                    onTap: () => Navigator.pushNamed(context, '/profile'),
+                  ),
+                  _buildMenuTile(
+                    title: 'Notifications',
+                    subtitle:
+                        'Review user-facing notifications and announcements.',
+                    icon: Icons.notifications_none,
+                    badgeCount: _unreadNotifications,
+                    onTap: () => Navigator.pushNamed(context, '/notifications'),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 
@@ -342,14 +371,20 @@ class _AdminPageState extends State<AdminPage> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark ? Colors.white10 : Colors.black.withValues(alpha: 0.05),
+                  color: isDark
+                      ? Colors.white10
+                      : Colors.black.withValues(alpha: 0.05),
                   shape: BoxShape.circle,
                 ),
                 child: Badge(
                   isLabelVisible: badgeCount > 0,
                   label: Text('$badgeCount'),
                   backgroundColor: primaryRed,
-                  child: Icon(icon, color: isDark ? Colors.white70 : Colors.black87, size: 24),
+                  child: Icon(
+                    icon,
+                    color: isDark ? Colors.white70 : Colors.black87,
+                    size: 24,
+                  ),
                 ),
               ),
               const SizedBox(width: 16),

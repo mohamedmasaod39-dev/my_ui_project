@@ -2,6 +2,30 @@ import 'package:flutter/material.dart';
 
 IconData iconFromString(String? iconName) {
   switch (iconName) {
+    case 'monitor':
+    case 'desktop_windows':
+    case 'desktop_windows_outlined':
+    case 'devices':
+      return Icons.desktop_windows_outlined;
+    case 'gamepad':
+    case 'sports_esports':
+    case 'sports_esports_outlined':
+      return Icons.sports_esports_outlined;
+    case 'home':
+    case 'home_outlined':
+      return Icons.home_outlined;
+    case 'shopping-bag':
+    case 'shopping_bag':
+    case 'shopping_bag_outlined':
+      return Icons.shopping_bag_outlined;
+    case 'globe':
+    case 'public':
+    case 'public_outlined':
+    case 'sports':
+      return Icons.public_outlined;
+    case 'ellipsis-horizontal':
+    case 'more_horiz':
+      return Icons.more_horiz;
     case 'phone_iphone':
       return Icons.phone_iphone;
     case 'laptop_mac':
@@ -12,18 +36,12 @@ IconData iconFromString(String? iconName) {
       return Icons.camera_alt;
     case 'checkroom':
       return Icons.checkroom;
-    case 'devices':
-      return Icons.devices;
     case 'male':
       return Icons.male;
     case 'female':
       return Icons.female;
     case 'child_care':
       return Icons.child_care;
-    case 'watch':
-      return Icons.watch;
-    case 'more_horiz':
-      return Icons.more_horiz;
     case 'chair':
       return Icons.chair;
     case 'spa':

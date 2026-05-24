@@ -1,0 +1,820 @@
+/*
+IMPLEMENTATION GUIDE - COMPREHENSIVE FEATURE UPDATES
+All features explained with step-by-step implementation
+*/
+
+===============================================================
+OVERVIEW OF ALL CHANGES
+===============================================================
+
+This implementation consists of:
+1. SQL migrations (Database changes)
+2. Dart code updates (Frontend/app changes)
+3. Logic flow modifications (How features work)
+
+===============================================================
+PART 1: DATABASE SETUP (supabase_comprehensive_updates.sql)
+===============================================================
+
+STEPS TO IMPLEMENT:
+1. Open Supabase SQL Editor
+2. Copy and paste the entire content of: supabase_comprehensive_updates.sql
+3. Click "RUN" button
+4. Verify no errors occur
+
+WHAT THIS DOES:
+- Adds shipping_cost_type and shipping_calculated_at to orders
+- Adds visibility, stock_deducted_at, out_of_stock_since to products
+- Adds delivery_confirmed_at, delivered_by_role to orders
+- Adds admin_approved, admin_approved_at to products
+- Creates triggers to:
+  * Auto-mark products as 'sold' when stock reaches 0
+  * Prevent actions on cancelled orders
+  * Finalize cancellations
+  * Deduct stock ONLY on delivery confirmation
+  * Restore stock when order is cancelled
+  * Prevent actions on cancelled orders
+
+
+===============================================================
+PART 2: APP CODE CHANGES - STEP BY STEP
+===============================================================
+
+------- FEATURE 1: ZERO SHIPPING COST -------
+FILE: lib/pages/cart_page.dart
+
+LOCATE: The _calculateActualShipping method (around line 160)
+CURRENT CODE:
+    double _calculateActualShipping(double subtotal) {
+      if (subtotal <= 0) return 0;
+      final fee = subtotal * 0.01;
+      return fee < 100 ? 100 : fee; // max(100, subtotal * 0.01)
+    }
+
+REPLACE WITH:
+    double _calculateActualShipping(double subtotal) {
+      // REQUIREMENT: Shipping is always FREE (zero) from cart to checkout
+      return 0;
+    }
+
+RESULT: All orders will now have shipping_price = 0. The existing code
+already shows "Free" on the cart page because _shippingFee getter 
+returns 0, so this change makes checkout consistent.
+
+
+------- FEATURE 2: CLICKABLE SELLER DASHBOARD -------
+FILE: lib/pages/my_products_page.dart
+
+LOCATE: The _buildProductCard method or product list items
+ADD THIS NEW METHOD to _MyProductsPageState class:
+    
+    Future<void> _viewProductDetails(Product product) async {
+      if (!mounted) return;
+      final updated = await Navigator.pushNamed(
+        context,
+        '/details',
+        arguments: product,
+      );
+      
+      if (updated == true) {
+        await _loadMyProducts();
+      }
+    }
+
+THEN: Wrap your product card widgets with GestureDetector:
+    
+    BEFORE:
+    _buildProductCard(product)
+    
+    AFTER:
+    GestureDetector(
+      onTap: () => _viewProductDetails(product),
+      child: _buildProductCard(product),
+    )
+
+RESULT: Sellers can now tap products in their dashboard to view details
+
+
+------- FEATURE 3: OUT-OF-STOCK WITH 'SOLD' LABEL -------
+FILE: lib/pages/index_page.dart (Product model)
+
+UPDATE Product class to include visibility field:
+
+LOCATE: The Product class definition
+ADD THESE FIELDS to the class:
+    
+    final String visibility; // 'visible', 'hidden', or 'sold'
+    final DateTime? outOfStockSince;
+
+IN THE CONSTRUCTOR, add:
+    
+    this.visibility = 'visible',
+    this.outOfStockSince,
+
+IN THE fromMap factory method, add these lines:
+    
+    visibility: (map['visibility'] ?? 'visible').toString(),
+    outOfStockSince: map['out_of_stock_since'] != null 
+      ? DateTime.tryParse(map['out_of_stock_since'].toString())
+      : null,
+
+UPDATE THE isBuyable getter:
+    
+    bool get isBuyable => 
+      status.toLowerCase() == 'active' && 
+      stockQty > 0 && 
+      visibility != 'hidden';
+
+ADD THIS NEW GETTER:
+    
+    bool get isSold => visibility == 'sold' || stockQty <= 0;
+
+FILE: lib/pages/index_page.dart (_IndexPageState)
+
+LOCATE: The _loadProducts method (around line 250)
+FIND THIS LINE:
+    
+    var query = supabase
+        .from('products')
+        .select()
+        .eq('status', 'active')
+        .eq('validated', true)
+        .gt('stock_qty', 0)  // <-- REMOVE THIS LINE
+
+REPLACE WITH:
+    
+    var query = supabase
+        .from('products')
+        .select()
+        .eq('status', 'active')
+        .eq('validated', true)
+        .neq('visibility', 'hidden'); // Keep sold items visible
+
+RESULT: Products with 0 stock will remain visible with 'SOLD' label
+
+
+------- FEATURE 4: DISPLAY SOLD LABEL IN UI -------
+FILE: lib/pages/details_page.dart
+
+ADD THIS WIDGET METHOD to _DetailsPageState:
+    
+    Widget _buildStockBadge(Product product) {
+      final isSold = product.stockQty <= 0;
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSold ? Colors.grey[600] : Color(0xFF34C759),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          isSold ? 'SOLD OUT' : 'IN STOCK',
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 12,
+          ),
+        ),
+      );
+    }
+
+LOCATE: Where the product title/price is displayed
+ADD: _buildStockBadge(_product!) next to the title
+
+LOCATE: The "Add to Cart" button section
+REPLACE WITH:
+    
+    if (_product!.stockQty <= 0) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.grey[600],
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          'SOLD OUT',
+          style: GoogleFonts.poppins(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 18,
+          ),
+        ),
+      );
+    } else {
+      // Show Add to Cart button (existing code)
+      return ElevatedButton(/* ... */);
+    }
+
+RESULT: Details page shows SOLD OUT status and hides Add to Cart
+
+
+------- FEATURE 5: REMOVE SUBCATEGORIES -------
+FILE: lib/pages/index_page.dart
+
+LOCATE: The _loadCategories method
+MODIFY TO NOT LOAD SUBCATEGORIES:
+    
+    Future<void> _loadCategories() async {
+      try {
+        final response = await supabase
+            .from('categories')
+            .select()
+            .order('name', ascending: true);
+
+        final loadedCategories = (response as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList();
+
+        if (!mounted) return;
+        setState(() {
+          _categories = loadedCategories;
+          _selectedSubcategory = null; // Clear any subcategory
+        });
+      } catch (_) {
+        if (!mounted) return;
+        setState(() {
+          _categories = [];
+        });
+      }
+    }
+
+LOCATE: Where subcategory UI is rendered (chips for men/women/kids)
+REMOVE: All subcategory selection UI code
+
+LOCATE: In _loadProducts, if you filter by subcategory
+REMOVE: The filter for subcategory
+
+RESULT: Only main categories are shown (e.g., just "Fashion", no "Men/Women/Kids")
+
+
+------- FEATURE 6: ADMIN PRODUCT APPROVAL NOTIFICATIONS -------
+FILE: lib/pages/add_edit_product_page.dart
+
+ADD THIS METHOD to handle admin notifications:
+    
+    Future<void> _notifyAdminsOfNewListing(int productId) async {
+      try {
+        final user = supabase.auth.currentUser;
+        if (user == null) return;
+
+        final product = await supabase
+            .from('products')
+            .select()
+            .eq('id', productId)
+            .maybeSingle();
+
+        if (product == null) return;
+
+        final admins = await supabase
+            .from('profiles')
+            .select('id')
+            .eq('role', 'admin');
+
+        for (final admin in admins) {
+          await supabase
+              .from('notifications')
+              .insert({
+                'user_id': admin['id'],
+                'sender_id': user.id,
+                'title': 'New Product Listing for Review',
+                'body': '${product['title']} by ${user.email} is pending approval.',
+                'type': 'product_approval',
+                'product_id': productId,
+                'data': {
+                  'product_id': productId,
+                  'action_type': 'approve'
+                },
+              });
+        }
+      } catch (e) {
+        print('Error notifying admins: $e');
+      }
+    }
+
+LOCATE: Where products are created successfully
+ADD THIS LINE after successful product creation:
+    
+    if (createdProduct != null) {
+      await _notifyAdminsOfNewListing(createdProduct['id']);
+    }
+
+RESULT: When seller creates product, all admins get notified
+
+
+------- FEATURE 7: ADMIN PRODUCT APPROVAL UI -------
+FILE: lib/pages/notifications_page.dart
+
+ADD THIS METHOD:
+    
+    Future<void> _handleProductApproval(
+      NotificationModel notification, 
+      bool approved
+    ) async {
+      final productId = notification.data['product_id'];
+      if (productId == null) return;
+
+      try {
+        final user = supabase.auth.currentUser;
+        if (user == null) return;
+
+        await supabase
+            .from('products')
+            .update({
+              'admin_approved': approved,
+              'admin_approved_at': DateTime.now().toIso8601String(),
+              'validated': approved,
+              'status': approved ? 'active' : 'hidden',
+            })
+            .eq('id', productId);
+
+        await supabase
+            .from('notifications')
+            .update({'is_read': true})
+            .eq('id', notification.id);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(approved ? 'Product approved' : 'Product revoked'),
+          ),
+        );
+
+        await _loadNotifications();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+
+ADD THIS WIDGET:
+    
+    Widget _buildProductApprovalNotification(NotificationModel notification) {
+      return Container(
+        padding: const EdgeInsets.all(16),
+        margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        decoration: BoxDecoration(
+          color: Colors.blue[100],
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.blue),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              notification.title,
+              style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(notification.body, style: GoogleFonts.inter(fontSize: 12)),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _handleProductApproval(notification, true),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Color(0xFF34C759),
+                    ),
+                    child: Text('Approve', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: () => _handleProductApproval(notification, false),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                    child: Text('Revoke', style: TextStyle(color: Colors.white)),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+LOCATE: Where notifications are rendered
+MODIFY _buildNotificationTile:
+    
+    Widget _buildNotificationTile(NotificationModel notification) {
+      if (notification.type == 'product_approval') {
+        return _buildProductApprovalNotification(notification);
+      }
+      
+      // ... existing notification tile code ...
+    }
+
+RESULT: Admins see product approval notifications with Approve/Revoke buttons
+
+
+------- FEATURE 8: ORDER CANCELLATION - HIDE ACTIONS -------
+FILE: lib/pages/orders_page.dart
+
+ADD THIS METHOD:
+    
+    bool _isCancelled(OrderModel order) {
+      return order.cancelledByRole != null && 
+             order.cancelledByRole!.isNotEmpty;
+    }
+
+ADD THIS METHOD to handle cancellation:
+    
+    Future<void> _cancelOrder(int orderId) async {
+      try {
+        final user = supabase.auth.currentUser;
+        if (user == null) return;
+
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Cancel Order?'),
+            content: Text(
+              'Are you sure? This action is FINAL. '
+              'You won\'t be able to perform any actions afterward.'
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Keep Order'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) return;
+
+        await supabase
+            .from('orders')
+            .update({
+              'cancelled_by_role': 'buyer',
+              'status': 'cancelled',
+            })
+            .eq('id', orderId)
+            .eq('buyer_id', user.id);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Order cancelled. No further actions possible.'),
+          ),
+        );
+
+        await _loadOrders();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+
+LOCATE: Where order cards are built
+MODIFY to show cancellation status:
+    
+    Widget _buildOrderCard(OrderModel order) {
+      final isCancelled = _isCancelled(order);
+
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          opacity: isCancelled ? 0.6 : 1.0,
+          color: isCancelled ? Colors.grey[300] : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Text('Order #${order.id}'),
+            Text('Status: ${order.status}'),
+            if (isCancelled)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8, 
+                  vertical: 4
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.red[300],
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text(
+                  'CANCELLED - No actions available',
+                  style: GoogleFonts.poppins(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.red[900],
+                    fontSize: 12,
+                  ),
+                ),
+              )
+            else
+              // Show action buttons only if NOT cancelled
+              Row(
+                children: [
+                  ElevatedButton(
+                    onPressed: () => _viewOrderDetails(order),
+                    child: Text('View'),
+                  ),
+                  SizedBox(width: 8),
+                  ElevatedButton(
+                    onPressed: () => _cancelOrder(order.id),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red,
+                    ),
+                    child: Text('Cancel'),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      );
+    }
+
+RESULT: Cancelled orders are grayed out with "No actions available" message
+
+
+------- FEATURE 9: SELLER CANCELLATION -------
+FILE: lib/pages/seller_orders_page.dart
+
+ADD SAME _isCancelled method and cancellation logic as above
+ADD THIS METHOD:
+    
+    Future<void> _cancelOrder(int orderId) async {
+      try {
+        final user = supabase.auth.currentUser;
+        if (user == null) return;
+
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Cancel Order?'),
+            content: Text('This action is final and cannot be undone.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Keep Order'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('Cancel Order', style: TextStyle(color: Colors.red)),
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) return;
+
+        await supabase
+            .from('orders')
+            .update({
+              'cancelled_by_role': 'seller',
+              'status': 'cancelled',
+            })
+            .eq('id', orderId);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Order cancelled.')),
+        );
+
+        await _loadOrders();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+
+MODIFY: Order action buttons to hide when cancelled:
+    
+    Widget _buildOrderActions(SellerOrderModel order) {
+      if (order.orderStatus == 'cancelled') {
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.grey[400],
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            'Order Cancelled',
+            style: GoogleFonts.poppins(fontWeight: FontWeight.bold),
+          ),
+        );
+      }
+
+      return Row(
+        children: [
+          ElevatedButton(
+            onPressed: () => _confirmShipment(order.orderId),
+            child: Text('Confirm Shipment'),
+          ),
+          SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: () => _confirmDelivery(order.orderId),
+            child: Text('Confirm Delivery'),
+          ),
+          SizedBox(width: 8),
+          ElevatedButton(
+            onPressed: () => _cancelOrder(order.orderId),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text('Cancel'),
+          ),
+        ],
+      );
+    }
+
+RESULT: Sellers can cancel orders, and actions hide afterwards
+
+
+------- FEATURE 10: DELIVERY CONFIRMATION - STOCK DEDUCTION -------
+FILE: lib/pages/seller_orders_page.dart
+
+ADD THIS METHOD:
+    
+    Future<void> _confirmDelivery(int orderId) async {
+      try {
+        final user = supabase.auth.currentUser;
+        if (user == null) return;
+
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: Text('Confirm Delivery?'),
+            content: Text(
+              'Confirming delivery will:'
+              '\n• Deduct product stock'
+              '\n• Finalize this order'
+              '\n• Mark order as completed'
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: Text('Confirm Delivery'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirm != true) return;
+
+        // This will trigger the database function to deduct stock
+        await supabase
+            .from('orders')
+            .update({
+              'status': 'delivered',
+              'delivery_confirmed_at': DateTime.now().toIso8601String(),
+              'delivered_by_role': 'seller',
+            })
+            .eq('id', orderId);
+
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Delivery confirmed! Stock has been deducted.')),
+        );
+
+        await _loadOrders();
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+
+RESULT: When seller confirms delivery, database trigger deducts stock
+
+
+===============================================================
+PART 3: HOW THE FEATURES WORK TOGETHER
+===============================================================
+
+SHIPPING:
+1. Buyer adds products to cart
+2. Cart displays "Shipping: Free" (always 0)
+3. Buyer proceeds to checkout
+4. Checkout shows shipping as 0
+5. Order created with shipping_price = 0
+
+PRODUCT VISIBILITY:
+1. Seller creates product → Admin gets notification
+2. Admin can Approve or Revoke
+3. When approved: status = 'active', visibility = 'visible'
+4. When revoked: status = 'hidden', visibility = 'hidden'
+5. When stock reaches 0: visibility = 'sold' (visible with SOLD label)
+6. Product appears on homepage with "SOLD OUT" label
+
+STOCK MANAGEMENT:
+1. Order created → Stock NOT deducted (reserved)
+2. Seller confirms shipment → Still not deducted
+3. Seller confirms delivery → Stock IS deducted
+4. If order cancelled:
+   - All actions disappear
+   - Stock is restored
+   - Order shows "CANCELLED - No actions available"
+
+CANCELLATION:
+1. Buyer/Seller can cancel order (one-time action)
+2. cancelled_by_role is set to 'buyer' or 'seller'
+3. cancellation_finalized = TRUE (prevents further actions)
+4. All action buttons hidden
+5. Order grayed out with cancellation message
+6. Stock restored to product
+
+ADMIN ACTIONS:
+1. New product listed → Admin notified
+2. Admin views notification
+3. Admin can: APPROVE (make visible) or REVOKE (hide)
+4. Decision is saved immediately
+
+===============================================================
+TESTING CHECKLIST
+===============================================================
+
+SHIPPING:
+☐ Add product to cart
+☐ Verify shipping shows "Free"
+☐ Proceed to checkout
+☐ Verify shipping_price = 0 in database
+
+PRODUCTS:
+☐ Create product as seller
+☐ Check admin received notification
+☐ Admin approves product
+☐ Product appears on homepage
+☐ Admin revokes product
+☐ Product hidden from homepage
+
+OUT-OF-STOCK:
+☐ Reduce product stock to 0
+☐ Product still visible on homepage
+☐ Product shows "SOLD OUT" label
+☐ Can't add to cart
+
+STOCK DEDUCTION:
+☐ Create order
+☐ Check stock not deducted yet
+☐ Seller confirms delivery
+☐ Check stock IS deducted
+
+CANCELLATION:
+☐ Create order as buyer
+☐ Click Cancel
+☐ Confirm cancellation
+☐ Verify action buttons hidden
+☐ Verify stock restored
+
+===============================================================
+DEPLOYMENT STEPS
+===============================================================
+
+1. Backup database (in Supabase, export data)
+2. Run SQL migration (supabase_comprehensive_updates.sql)
+3. Update cart_page.dart (_calculateActualShipping)
+4. Update index_page.dart (Product model + _loadProducts)
+5. Update details_page.dart (visibility display)
+6. Update my_products_page.dart (clickable items)
+7. Update add_edit_product_page.dart (notify admins)
+8. Update notifications_page.dart (approval UI)
+9. Update orders_page.dart (cancellation logic)
+10. Update seller_orders_page.dart (seller cancellation)
+11. Test all features thoroughly
+12. Deploy to production
+
+===============================================================
+SUPPORT & TROUBLESHOOTING
+===============================================================
+
+If shipping is still charged:
+- Check _calculateActualShipping returns 0
+- Check orders table has shipping_price = 0
+- Check totalShipping calculation in checkout
+
+If products not showing sold status:
+- Check visibility field exists in products table
+- Check visibility is 'sold' for 0-stock products
+- Verify query includes neq('visibility', 'hidden')
+
+If admin notifications not appearing:
+- Check notification sent after product creation
+- Check admin user role = 'admin'
+- Verify admins table has correct profile entries
+
+If stock not deducting on delivery:
+- Check trigger created successfully
+- Check delivery_confirmed_at is set
+- Verify order status changed to 'delivered'
+
+If cancellation not working:
+- Check cancelled_by_role being set
+- Verify cancellation_finalized = true
+- Check order status changed to 'cancelled'

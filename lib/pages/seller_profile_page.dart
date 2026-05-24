@@ -46,7 +46,9 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
 
       final profileFuture = supabase
           .from('profiles')
-          .select('id, full_name, email, role, shop_name, bio, location, phone, avatar_url')
+          .select(
+            'id, full_name, email, role, shop_name, bio, location, phone, avatar_url',
+          )
           .eq('id', sellerId)
           .maybeSingle();
 
@@ -55,8 +57,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
           .select()
           .eq('seller_id', sellerId)
           .eq('validated', true)
-          .eq('status', 'active')
-          .gt('stock_qty', 0)
+          .inFilter('status', ['active', 'sold'])
           .order('created_at', ascending: false);
 
       final reviewsFuture = supabase
@@ -77,9 +78,13 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
 
       if (!mounted) return;
       setState(() {
-        _sellerProfile = profile == null ? null : Map<String, dynamic>.from(profile);
+        _sellerProfile = profile == null
+            ? null
+            : Map<String, dynamic>.from(profile);
         _products = products
-            .map((item) => Product.fromMap(Map<String, dynamic>.from(item as Map)))
+            .map(
+              (item) => Product.fromMap(Map<String, dynamic>.from(item as Map)),
+            )
             .toList();
         _reviews = reviews
             .map((item) => Map<String, dynamic>.from(item as Map))
@@ -122,7 +127,10 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
   Future<void> _messageSeller() async {
     final user = supabase.auth.currentUser;
     final sellerId = _sellerId;
-    if (user == null || sellerId == null || sellerId.isEmpty || sellerId == user.id) {
+    if (user == null ||
+        sellerId == null ||
+        sellerId.isEmpty ||
+        sellerId == user.id) {
       return;
     }
 
@@ -173,9 +181,9 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to open seller chat: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to open seller chat: $e')));
     }
   }
 
@@ -208,147 +216,160 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _errorMessage != null
-                ? ListView(
-                    children: [
-                      SizedBox(
-                        height: 500,
-                        child: Center(
-                          child: Text(
-                            _errorMessage!,
-                            style: GoogleFonts.inter(color: secondaryText),
-                          ),
-                        ),
+            ? ListView(
+                children: [
+                  SizedBox(
+                    height: 500,
+                    child: Center(
+                      child: Text(
+                        _errorMessage!,
+                        style: GoogleFonts.inter(color: secondaryText),
                       ),
-                    ],
-                  )
-                : ListView(
+                    ),
+                  ),
+                ],
+              )
+            : ListView(
+                padding: const EdgeInsets.all(20),
+                children: [
+                  Container(
                     padding: const EdgeInsets.all(20),
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: AppThemeColors.surface(context),
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                    decoration: BoxDecoration(
+                      color: AppThemeColors.surface(context),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Row(
-                              children: [
-                                CircleAvatar(
-                                  radius: 34,
-                                  backgroundColor: primaryRed.withValues(alpha: 0.12),
-                                  backgroundImage: (profile?['avatar_url'] ?? '')
-                                          .toString()
-                                          .trim()
-                                          .isNotEmpty
-                                      ? NetworkImage(profile!['avatar_url'].toString())
-                                      : null,
-                                  child: (profile?['avatar_url'] ?? '')
-                                          .toString()
-                                          .trim()
-                                          .isEmpty
-                                      ? const Icon(
-                                          Icons.storefront_outlined,
-                                          color: primaryRed,
-                                          size: 30,
-                                        )
-                                      : null,
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        _headerName,
-                                        style: GoogleFonts.poppins(
-                                          fontSize: 22,
-                                          fontWeight: FontWeight.bold,
-                                          color: textColor,
-                                        ),
-                                      ),
-                                      if ((profile?['location'] ?? '')
-                                          .toString()
-                                          .trim()
-                                          .isNotEmpty)
-                                        Text(
-                                          profile!['location'].toString(),
-                                          style: GoogleFonts.inter(color: secondaryText),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ],
+                            CircleAvatar(
+                              radius: 34,
+                              backgroundColor: primaryRed.withValues(
+                                alpha: 0.12,
+                              ),
+                              backgroundImage:
+                                  (profile?['avatar_url'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isNotEmpty
+                                  ? NetworkImage(
+                                      profile!['avatar_url'].toString(),
+                                    )
+                                  : null,
+                              child:
+                                  (profile?['avatar_url'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isEmpty
+                                  ? const Icon(
+                                      Icons.storefront_outlined,
+                                      color: primaryRed,
+                                      size: 30,
+                                    )
+                                  : null,
                             ),
-                            const SizedBox(height: 16),
-                            if (_reviews.isEmpty)
-                              Text(
-                                'No reviews yet',
-                                style: GoogleFonts.inter(color: secondaryText),
-                              )
-                            else
-                              Row(
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  ...List.generate(
-                                    5,
-                                    (index) => Icon(
-                                      index < _averageRating.round()
-                                          ? Icons.star
-                                          : Icons.star_border,
-                                      size: 18,
-                                      color: Colors.amber,
+                                  Text(
+                                    _headerName,
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 22,
+                                      fontWeight: FontWeight.bold,
+                                      color: textColor,
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '${_averageRating.toStringAsFixed(1)} / 5 (${_reviews.length})',
-                                    style: GoogleFonts.inter(color: secondaryText),
-                                  ),
+                                  if ((profile?['location'] ?? '')
+                                      .toString()
+                                      .trim()
+                                      .isNotEmpty)
+                                    Text(
+                                      profile!['location'].toString(),
+                                      style: GoogleFonts.inter(
+                                        color: secondaryText,
+                                      ),
+                                    ),
                                 ],
                               ),
-                            if ((profile?['bio'] ?? '').toString().trim().isNotEmpty) ...[
-                              const SizedBox(height: 14),
-                              Text(
-                                profile!['bio'].toString(),
-                                style: GoogleFonts.inter(
-                                  color: secondaryText,
-                                  height: 1.5,
-                                ),
-                              ),
-                            ],
-                            if (supabase.auth.currentUser?.id != _sellerId) ...[
-                              const SizedBox(height: 16),
-                              SizedBox(
-                                width: double.infinity,
-                                child: OutlinedButton.icon(
-                                  onPressed: _messageSeller,
-                                  icon: const Icon(Icons.chat_bubble_outline),
-                                  label: const Text('Message Seller'),
-                                  style: OutlinedButton.styleFrom(
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
+                            ),
                           ],
                         ),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          Expanded(child: _tabButton('Products', 0)),
-                          const SizedBox(width: 10),
-                          Expanded(child: _tabButton('Reviews', 1)),
+                        const SizedBox(height: 16),
+                        if (_reviews.isEmpty)
+                          Text(
+                            'No reviews yet',
+                            style: GoogleFonts.inter(color: secondaryText),
+                          )
+                        else
+                          Row(
+                            children: [
+                              ...List.generate(
+                                5,
+                                (index) => Icon(
+                                  index < _averageRating.round()
+                                      ? Icons.star
+                                      : Icons.star_border,
+                                  size: 18,
+                                  color: Colors.amber,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                '${_averageRating.toStringAsFixed(1)} / 5 (${_reviews.length})',
+                                style: GoogleFonts.inter(color: secondaryText),
+                              ),
+                            ],
+                          ),
+                        if ((profile?['bio'] ?? '')
+                            .toString()
+                            .trim()
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 14),
+                          Text(
+                            profile!['bio'].toString(),
+                            style: GoogleFonts.inter(
+                              color: secondaryText,
+                              height: 1.5,
+                            ),
+                          ),
                         ],
-                      ),
-                      const SizedBox(height: 20),
-                      if (_selectedTab == 0) _buildProductsTab(textColor, secondaryText),
-                      if (_selectedTab == 1) _buildReviewsTab(textColor, secondaryText),
+                        if (supabase.auth.currentUser?.id != _sellerId) ...[
+                          const SizedBox(height: 16),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: _messageSeller,
+                              icon: const Icon(Icons.chat_bubble_outline),
+                              label: const Text('Message Seller'),
+                              style: OutlinedButton.styleFrom(
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(child: _tabButton('Products', 0)),
+                      const SizedBox(width: 10),
+                      Expanded(child: _tabButton('Reviews', 1)),
                     ],
                   ),
+                  const SizedBox(height: 20),
+                  if (_selectedTab == 0)
+                    _buildProductsTab(textColor, secondaryText),
+                  if (_selectedTab == 1)
+                    _buildReviewsTab(textColor, secondaryText),
+                ],
+              ),
       ),
     );
   }
@@ -386,7 +407,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
   Widget _buildProductsTab(Color textColor, Color secondaryText) {
     if (_products.isEmpty) {
       return Text(
-        'No active listings yet.',
+        'No listings yet.',
         style: GoogleFonts.inter(color: secondaryText),
       );
     }
@@ -403,12 +424,10 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
       itemCount: _products.length,
       itemBuilder: (context, index) {
         final product = _products[index];
+        final isUnavailable = product.isUnavailable;
         return GestureDetector(
-          onTap: () => Navigator.pushNamed(
-            context,
-            '/details',
-            arguments: product,
-          ),
+          onTap: () =>
+              Navigator.pushNamed(context, '/details', arguments: product),
           child: Container(
             decoration: BoxDecoration(
               color: AppThemeColors.surface(context),
@@ -418,11 +437,47 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: product.image != null && product.image!.isNotEmpty
-                        ? Image.network(product.image!, fit: BoxFit.contain)
-                        : const Icon(Icons.image_not_supported, color: Colors.grey),
+                  child: Stack(
+                    children: [
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(14),
+                          child:
+                              product.image != null && product.image!.isNotEmpty
+                              ? Image.network(
+                                  product.image!,
+                                  fit: BoxFit.contain,
+                                )
+                              : const Icon(
+                                  Icons.image_not_supported,
+                                  color: Colors.grey,
+                                ),
+                        ),
+                      ),
+                      if (isUnavailable)
+                        Positioned(
+                          top: 10,
+                          left: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              product.availabilityLabel,
+                              style: GoogleFonts.inter(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
                 Padding(
@@ -443,7 +498,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
                       Text(
                         '${product.currency} ${product.price.toStringAsFixed(0)}',
                         style: GoogleFonts.poppins(
-                          color: primaryRed,
+                          color: isUnavailable ? Colors.grey : primaryRed,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -513,10 +568,7 @@ class _SellerProfilePageState extends State<SellerProfilePage> {
               const SizedBox(height: 8),
               Text(
                 'Order #${review['order_id']}',
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: secondaryText,
-                ),
+                style: GoogleFonts.inter(fontSize: 12, color: secondaryText),
               ),
             ],
           ),
