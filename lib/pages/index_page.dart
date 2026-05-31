@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/app_mode_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
@@ -155,6 +156,7 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
   int _selectedIndex = 0;
   bool _isLoading = true;
   bool _isRouteObserverSubscribed = false;
+  String _userRole = 'buyer';
   List<Product> _products = [];
   int _unreadNotifications = 0;
   int _unreadMessages = 0;
@@ -165,11 +167,41 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
   @override
   void initState() {
     super.initState();
+    _loadUserRole();
     _loadProducts();
     _loadCategories();
     _setupNotifications();
     _wishlistService.load();
     _wishlistService.favoriteIds.addListener(_onWishlistChanged);
+  }
+
+  bool get _isSellerAccount =>
+      _userRole == 'seller' || AppModeService.instance.isSeller;
+
+  Future<void> _loadUserRole() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final profile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', user.id)
+          .maybeSingle();
+      final role = (profile?['role'] ?? '').toString().trim().toLowerCase();
+      final resolvedRole = role.isEmpty ? 'buyer' : role;
+
+      if (resolvedRole == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+      } else if (resolvedRole == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _userRole = resolvedRole;
+      });
+    } catch (_) {}
   }
 
   void _setupNotifications() {
@@ -236,6 +268,15 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
   }
 
   Future<void> _toggleWishlist(int productId) async {
+    if (_isSellerAccount) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Seller accounts cannot save shopping items'),
+        ),
+      );
+      return;
+    }
+
     try {
       await _wishlistService.toggle(productId);
     } catch (e) {
@@ -378,18 +419,20 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
           ),
         ),
         actions: [
-          IconButton(
-            icon: Icon(Icons.favorite_border, color: textColor),
-            onPressed: () => Navigator.pushNamed(context, '/wishlist'),
-          ),
+          if (!_isSellerAccount)
+            IconButton(
+              icon: Icon(Icons.favorite_border, color: textColor),
+              onPressed: () => Navigator.pushNamed(context, '/wishlist'),
+            ),
           IconButton(
             icon: Icon(Icons.search, color: textColor),
             onPressed: () => Navigator.pushNamed(context, '/search'),
           ),
-          IconButton(
-            icon: Icon(Icons.shopping_cart_outlined, color: textColor),
-            onPressed: () => Navigator.pushNamed(context, '/cart'),
-          ),
+          if (!_isSellerAccount)
+            IconButton(
+              icon: Icon(Icons.shopping_cart_outlined, color: textColor),
+              onPressed: () => Navigator.pushNamed(context, '/cart'),
+            ),
           const SizedBox(width: 10),
         ],
       ),
@@ -444,20 +487,21 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                       Navigator.pop(context);
                     },
                   ),
-                  ListTile(
-                    leading: const Icon(
-                      Icons.favorite_outline,
-                      color: primaryRed,
+                  if (!_isSellerAccount)
+                    ListTile(
+                      leading: const Icon(
+                        Icons.favorite_outline,
+                        color: primaryRed,
+                      ),
+                      title: Text(
+                        'My Wishlist',
+                        style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
+                      ),
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.pushNamed(context, '/wishlist');
+                      },
                     ),
-                    title: Text(
-                      'My Wishlist',
-                      style: GoogleFonts.poppins(fontWeight: FontWeight.w600),
-                    ),
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.pushNamed(context, '/wishlist');
-                    },
-                  ),
                   const Divider(indent: 20, endIndent: 20),
                   ..._categories.map((cat) {
                     final id = cat['id'] as int?;
@@ -908,22 +952,23 @@ class _IndexPageState extends State<IndexPage> with RouteAware {
                       ),
                     ),
                   ),
-                Positioned(
-                  top: 5,
-                  right: 5,
-                  child: IconButton(
-                    icon: Icon(
-                      _wishlistService.isFavorite(product.id)
-                          ? Icons.favorite
-                          : Icons.favorite_border,
-                      color: _wishlistService.isFavorite(product.id)
-                          ? primaryRed
-                          : textColor.withValues(alpha: 0.5),
-                      size: 20,
+                if (!_isSellerAccount)
+                  Positioned(
+                    top: 5,
+                    right: 5,
+                    child: IconButton(
+                      icon: Icon(
+                        _wishlistService.isFavorite(product.id)
+                            ? Icons.favorite
+                            : Icons.favorite_border,
+                        color: _wishlistService.isFavorite(product.id)
+                            ? primaryRed
+                            : textColor.withValues(alpha: 0.5),
+                        size: 20,
+                      ),
+                      onPressed: () => _toggleWishlist(product.id),
                     ),
-                    onPressed: () => _toggleWishlist(product.id),
                   ),
-                ),
               ],
             ),
           ),

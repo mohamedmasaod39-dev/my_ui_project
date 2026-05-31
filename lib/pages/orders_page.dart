@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/app_mode_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -146,6 +147,7 @@ class _OrdersPageState extends State<OrdersPage> {
   final supabase = Supabase.instance.client;
   RealtimeChannel? _ordersChannel;
   bool _isLoading = true;
+  bool _isSellerAccount = AppModeService.instance.isSeller;
   String? _errorMessage;
   List<OrderModel> _orders = [];
 
@@ -203,6 +205,21 @@ class _OrdersPageState extends State<OrdersPage> {
         .subscribe();
   }
 
+  Future<String> _loadCurrentRole(String userId) async {
+    try {
+      final profile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+
+      final role = (profile?['role'] ?? '').toString().trim().toLowerCase();
+      return role.isEmpty ? 'buyer' : role;
+    } catch (_) {
+      return AppModeService.instance.isSeller ? 'seller' : 'buyer';
+    }
+  }
+
   Future<void> _loadOrders() async {
     try {
       setState(() {
@@ -217,6 +234,27 @@ class _OrdersPageState extends State<OrdersPage> {
           _isLoading = false;
         });
         return;
+      }
+
+      final role = await _loadCurrentRole(user.id);
+      final isSellerAccount = role == 'seller';
+      if (isSellerAccount) {
+        AppModeService.instance.setMode(AppMode.seller);
+        if (!mounted) return;
+        setState(() {
+          _isSellerAccount = true;
+          _orders = [];
+        });
+        return;
+      }
+
+      if (role == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
+      if (mounted && _isSellerAccount) {
+        setState(() {
+          _isSellerAccount = false;
+        });
       }
 
       final response = await supabase
@@ -711,6 +749,53 @@ class _OrdersPageState extends State<OrdersPage> {
       return ListView(
         children: [
           SizedBox(height: 500, child: Center(child: Text(_errorMessage!))),
+        ],
+      );
+    }
+
+    if (_isSellerAccount) {
+      return ListView(
+        children: [
+          SizedBox(
+            height: 500,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.storefront_outlined,
+                      size: 64,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Seller accounts do not have buyer orders',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.poppins(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        color: AppThemeColors.textSecondary(context),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ElevatedButton(
+                      onPressed: () => Navigator.pushReplacementNamed(
+                        context,
+                        '/seller_orders',
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: primaryRed,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('Open Seller Orders'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       );
     }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/app_mode_service.dart';
 import 'package:my_ui_project/services/checkout_info_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -42,6 +43,7 @@ class _CartPageState extends State<CartPage> {
 
   bool _isLoading = true;
   bool _isCheckingOut = false;
+  bool _isSellerAccount = AppModeService.instance.isSeller;
   String? _errorMessage;
   List<CartItemModel> _cartItems = [];
 
@@ -49,6 +51,31 @@ class _CartPageState extends State<CartPage> {
   void initState() {
     super.initState();
     _loadCart();
+  }
+
+  Future<String> _loadCurrentRole(String userId) async {
+    try {
+      final profile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final role = (profile?['role'] ?? '').toString().trim().toLowerCase();
+      return role.isEmpty ? 'buyer' : role;
+    } catch (_) {
+      return AppModeService.instance.isSeller ? 'seller' : 'buyer';
+    }
+  }
+
+  Future<bool> _isCurrentUserSeller(String userId) async {
+    final role = await _loadCurrentRole(userId);
+    final isSeller = role == 'seller';
+    if (isSeller) {
+      AppModeService.instance.setMode(AppMode.seller);
+    } else if (role == 'buyer') {
+      AppModeService.instance.setMode(AppMode.buyer);
+    }
+    return isSeller;
   }
 
   Future<void> _loadCart() async {
@@ -65,6 +92,21 @@ class _CartPageState extends State<CartPage> {
           _isLoading = false;
         });
         return;
+      }
+
+      if (await _isCurrentUserSeller(user.id)) {
+        if (!mounted) return;
+        setState(() {
+          _isSellerAccount = true;
+          _cartItems = [];
+        });
+        return;
+      }
+
+      if (mounted && _isSellerAccount) {
+        setState(() {
+          _isSellerAccount = false;
+        });
       }
 
       final response = await supabase
@@ -85,9 +127,11 @@ class _CartPageState extends State<CartPage> {
         _errorMessage = 'Failed to load cart';
       });
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
@@ -228,6 +272,18 @@ class _CartPageState extends State<CartPage> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Please login first')));
+      return;
+    }
+
+    if (await _isCurrentUserSeller(user.id)) {
+      if (!mounted) return;
+      setState(() {
+        _isSellerAccount = true;
+        _cartItems = [];
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Seller accounts cannot check out')),
+      );
       return;
     }
 
@@ -786,7 +842,10 @@ class _CartPageState extends State<CartPage> {
       body: Stack(
         children: [
           _buildBody(),
-          if (!_isLoading && _errorMessage == null && _cartItems.isNotEmpty)
+          if (!_isSellerAccount &&
+              !_isLoading &&
+              _errorMessage == null &&
+              _cartItems.isNotEmpty)
             Positioned(
               bottom: 0,
               left: 0,
@@ -928,6 +987,10 @@ class _CartPageState extends State<CartPage> {
       );
     }
 
+    if (_isSellerAccount) {
+      return _buildSellerCartBlocked(textColor);
+    }
+
     if (_cartItems.isEmpty) {
       return CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(
@@ -1009,6 +1072,76 @@ class _CartPageState extends State<CartPage> {
           ),
         ),
         const SliverToBoxAdapter(child: SizedBox(height: 250)),
+      ],
+    );
+  }
+
+  Widget _buildSellerCartBlocked(Color textColor) {
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(
+        parent: BouncingScrollPhysics(),
+      ),
+      slivers: [
+        SliverAppBar(
+          expandedHeight: 120.0,
+          floating: false,
+          pinned: true,
+          elevation: 0,
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          flexibleSpace: FlexibleSpaceBar(
+            centerTitle: true,
+            title: Text(
+              "Your Basket",
+              style: GoogleFonts.poppins(
+                color: textColor,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ),
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back_ios_new, color: textColor, size: 20),
+            onPressed: () => Navigator.pop(context),
+          ),
+        ),
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 32),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.storefront_outlined,
+                    size: 64,
+                    color: AppThemeColors.textSecondary(context),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    "Seller accounts cannot start shopping",
+                    textAlign: TextAlign.center,
+                    style: GoogleFonts.poppins(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: AppThemeColors.textSecondary(context),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton(
+                    onPressed: () =>
+                        Navigator.pushReplacementNamed(context, '/seller_home'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: primaryRed,
+                      foregroundColor: Colors.white,
+                    ),
+                    child: const Text('Open Seller Dashboard'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

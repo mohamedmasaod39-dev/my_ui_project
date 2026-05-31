@@ -63,8 +63,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
       _selectedCategoryName.contains('gaming') ||
       _selectedCategoryName.contains('game');
 
-  bool get _isElectronics =>
-      _selectedCategoryName.contains('electronic');
+  bool get _isElectronics => _selectedCategoryName.contains('electronic');
 
   bool get _isHome =>
       _selectedCategoryName.contains('home') ||
@@ -74,8 +73,7 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
       _selectedCategoryName.contains('fashion') ||
       _selectedCategoryName.contains('clothing');
 
-  bool get _isSports =>
-      _selectedCategoryName.contains('sport');
+  bool get _isSports => _selectedCategoryName.contains('sport');
 
   @override
   void initState() {
@@ -173,9 +171,9 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
     final user = supabase.auth.currentUser;
     if (user == null) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please login first')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please login first')));
       return;
     }
 
@@ -239,15 +237,15 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
       // ── Website Compatibility: Append additional details to description ──
       String effectiveDescription = description;
       if (listingDetails.isNotEmpty) {
-        final extrasText = "\n\n— Additional details —\n" + 
-            listingDetails.entries
-                .where((e) => e.key != 'subcategory')
-                .map((e) => "${e.key}: ${e.value}")
-                .join("\n");
-        effectiveDescription = description + extrasText;
+        final detailsText = listingDetails.entries
+            .where((e) => e.key != 'subcategory')
+            .map((e) => "${e.key}: ${e.value}")
+            .join("\n");
+        final extrasText = "\n\n— Additional details —\n$detailsText";
+        effectiveDescription = '$description$extrasText';
       }
 
-      final slug = _slugify(title, user.id);
+      final slug = await _createUniqueSlug(title, user.id);
       final isActive = effectiveStatus == 'active';
       final priceMinor = (price * 100).round();
 
@@ -266,7 +264,9 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
         'active': isActive, // Website parity
         'listing_details': listingDetails,
         'slug': slug,
-        'validated': _editingProduct != null ? _editingProduct!.validated : false,
+        'validated': _editingProduct != null
+            ? _editingProduct!.validated
+            : false,
         'category': _selectedCategoryName, // Website parity (string)
       };
 
@@ -292,9 +292,9 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
       Navigator.pop(context);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Save failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
     } finally {
       if (mounted) {
         setState(() {
@@ -347,13 +347,19 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                   const SizedBox(height: 14),
                   _input('Description *', _descriptionController, maxLines: 4),
                   const SizedBox(height: 14),
-                  _input('Price (EGP) *', _priceController,
-                      keyboardType: TextInputType.number),
+                  _input(
+                    'Price (EGP) *',
+                    _priceController,
+                    keyboardType: TextInputType.number,
+                  ),
                   const SizedBox(height: 14),
                   _input('Image URL *', _imageController),
                   const SizedBox(height: 14),
-                  _input('Stock Quantity *', _stockQtyController,
-                      keyboardType: TextInputType.number),
+                  _input(
+                    'Stock Quantity *',
+                    _stockQtyController,
+                    keyboardType: TextInputType.number,
+                  ),
                   const SizedBox(height: 14),
 
                   // ── Category ──
@@ -404,15 +410,21 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                   _input('Model (optional)', _modelController),
                   const SizedBox(height: 14),
                   DropdownButtonFormField<String>(
-                    value: _conditionController.text.isEmpty ? null : _conditionController.text,
+                    initialValue: _conditionController.text.isEmpty
+                        ? null
+                        : _conditionController.text,
                     decoration: _dropdownDecoration('Condition (optional)'),
                     items: const [
                       DropdownMenuItem(value: 'New', child: Text('New')),
-                      DropdownMenuItem(value: 'Like New', child: Text('Like New')),
+                      DropdownMenuItem(
+                        value: 'Like New',
+                        child: Text('Like New'),
+                      ),
                       DropdownMenuItem(value: 'Good', child: Text('Good')),
                       DropdownMenuItem(value: 'Fair', child: Text('Fair')),
                     ],
-                    onChanged: (val) => setState(() => _conditionController.text = val ?? ''),
+                    onChanged: (val) =>
+                        setState(() => _conditionController.text = val ?? ''),
                   ),
                   const SizedBox(height: 14),
                   _input('Warranty (optional)', _warrantyController),
@@ -427,32 +439,56 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                     _sectionLabel('Gaming Details'),
                     const SizedBox(height: 10),
                     DropdownButtonFormField<String>(
-                      value: _platformController.text.isEmpty ? null : _platformController.text,
+                      initialValue: _platformController.text.isEmpty
+                          ? null
+                          : _platformController.text,
                       decoration: _dropdownDecoration('Platform (optional)'),
                       items: const [
                         DropdownMenuItem(value: 'PC', child: Text('PC')),
-                        DropdownMenuItem(value: 'PlayStation', child: Text('PlayStation')),
+                        DropdownMenuItem(
+                          value: 'PlayStation',
+                          child: Text('PlayStation'),
+                        ),
                         DropdownMenuItem(value: 'Xbox', child: Text('Xbox')),
-                        DropdownMenuItem(value: 'Nintendo Switch', child: Text('Nintendo Switch')),
-                        DropdownMenuItem(value: 'Mobile', child: Text('Mobile')),
-                        DropdownMenuItem(value: 'Multi-platform', child: Text('Multi-platform')),
+                        DropdownMenuItem(
+                          value: 'Nintendo Switch',
+                          child: Text('Nintendo Switch'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Mobile',
+                          child: Text('Mobile'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Multi-platform',
+                          child: Text('Multi-platform'),
+                        ),
                         DropdownMenuItem(value: 'Other', child: Text('Other')),
                       ],
-                      onChanged: (val) => setState(() => _platformController.text = val ?? ''),
+                      onChanged: (val) =>
+                          setState(() => _platformController.text = val ?? ''),
                     ),
                     const SizedBox(height: 14),
                     _input('Genre (e.g. Action, RPG)', _genreController),
                     const SizedBox(height: 14),
                     DropdownButtonFormField<String>(
-                      value: _ageRatingController.text.isEmpty ? null : _ageRatingController.text,
+                      initialValue: _ageRatingController.text.isEmpty
+                          ? null
+                          : _ageRatingController.text,
                       decoration: _dropdownDecoration('Age Rating (optional)'),
                       items: const [
                         DropdownMenuItem(value: 'E', child: Text('Everyone')),
                         DropdownMenuItem(value: 'T', child: Text('Teen (13+)')),
-                        DropdownMenuItem(value: 'M', child: Text('Mature (17+)')),
-                        DropdownMenuItem(value: 'AO', child: Text('Adults Only')),
+                        DropdownMenuItem(
+                          value: 'M',
+                          child: Text('Mature (17+)'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'AO',
+                          child: Text('Adults Only'),
+                        ),
                       ],
-                      onChanged: (val) => setState(() => _ageRatingController.text = val ?? ''),
+                      onChanged: (val) =>
+                          setState(() => _ageRatingController.text = val ?? ''),
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -471,31 +507,58 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                     const SizedBox(height: 10),
                     _input('Material (e.g. Wood, Metal)', _materialController),
                     const SizedBox(height: 14),
-                    _input('Dimensions (e.g. 120×60×75 cm)', _dimensionsController),
-                    const SizedBox(height: 14),
-                    DropdownButtonFormField<String>(
-                      value: _roomTypeController.text.isEmpty ? null : _roomTypeController.text,
-                      decoration: _dropdownDecoration('Room Type (optional)'),
-                      items: const [
-                        DropdownMenuItem(value: 'Living Room', child: Text('Living Room')),
-                        DropdownMenuItem(value: 'Bedroom', child: Text('Bedroom')),
-                        DropdownMenuItem(value: 'Kitchen', child: Text('Kitchen')),
-                        DropdownMenuItem(value: 'Bathroom', child: Text('Bathroom')),
-                        DropdownMenuItem(value: 'Office', child: Text('Office')),
-                        DropdownMenuItem(value: 'Outdoor', child: Text('Outdoor')),
-                        DropdownMenuItem(value: 'Other', child: Text('Other')),
-                      ],
-                      onChanged: (val) => setState(() => _roomTypeController.text = val ?? ''),
+                    _input(
+                      'Dimensions (e.g. 120×60×75 cm)',
+                      _dimensionsController,
                     ),
                     const SizedBox(height: 14),
                     DropdownButtonFormField<String>(
-                      value: _assemblyController.text.isEmpty ? null : _assemblyController.text,
+                      initialValue: _roomTypeController.text.isEmpty
+                          ? null
+                          : _roomTypeController.text,
+                      decoration: _dropdownDecoration('Room Type (optional)'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'Living Room',
+                          child: Text('Living Room'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Bedroom',
+                          child: Text('Bedroom'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Kitchen',
+                          child: Text('Kitchen'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Bathroom',
+                          child: Text('Bathroom'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Office',
+                          child: Text('Office'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Outdoor',
+                          child: Text('Outdoor'),
+                        ),
+                        DropdownMenuItem(value: 'Other', child: Text('Other')),
+                      ],
+                      onChanged: (val) =>
+                          setState(() => _roomTypeController.text = val ?? ''),
+                    ),
+                    const SizedBox(height: 14),
+                    DropdownButtonFormField<String>(
+                      initialValue: _assemblyController.text.isEmpty
+                          ? null
+                          : _assemblyController.text,
                       decoration: _dropdownDecoration('Assembly Required?'),
                       items: const [
                         DropdownMenuItem(value: 'Yes', child: Text('Yes')),
                         DropdownMenuItem(value: 'No', child: Text('No')),
                       ],
-                      onChanged: (val) => setState(() => _assemblyController.text = val ?? ''),
+                      onChanged: (val) =>
+                          setState(() => _assemblyController.text = val ?? ''),
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -511,7 +574,10 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                         DropdownMenuItem(value: 'Men', child: Text('Men')),
                         DropdownMenuItem(value: 'Women', child: Text('Women')),
                         DropdownMenuItem(value: 'Kids', child: Text('Kids')),
-                        DropdownMenuItem(value: 'Unisex', child: Text('Unisex')),
+                        DropdownMenuItem(
+                          value: 'Unisex',
+                          child: Text('Unisex'),
+                        ),
                       ],
                       onChanged: (value) =>
                           setState(() => _selectedGender = value),
@@ -528,14 +594,23 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
                     _input('Sport (e.g. Football, Tennis)', _sportController),
                     const SizedBox(height: 14),
                     DropdownButtonFormField<String>(
-                      value: _useTypeController.text.isEmpty ? null : _useTypeController.text,
+                      initialValue: _useTypeController.text.isEmpty
+                          ? null
+                          : _useTypeController.text,
                       decoration: _dropdownDecoration('Indoor / Outdoor Use'),
                       items: const [
-                        DropdownMenuItem(value: 'Indoor', child: Text('Indoor')),
-                        DropdownMenuItem(value: 'Outdoor', child: Text('Outdoor')),
+                        DropdownMenuItem(
+                          value: 'Indoor',
+                          child: Text('Indoor'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Outdoor',
+                          child: Text('Outdoor'),
+                        ),
                         DropdownMenuItem(value: 'Both', child: Text('Both')),
                       ],
-                      onChanged: (val) => setState(() => _useTypeController.text = val ?? ''),
+                      onChanged: (val) =>
+                          setState(() => _useTypeController.text = val ?? ''),
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -592,10 +667,41 @@ class _AddEditProductPageState extends State<AddEditProductPage> {
   String _slugify(String title, String userId) {
     final clean = title
         .toLowerCase()
-        .replaceAll(RegExp(r'[^a-z0-9\s]'), '')
-        .replaceAll(RegExp(r'\s+'), '-');
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'-+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    final safeTitle = clean.isEmpty ? 'product' : clean;
     final shortId = userId.split('-').first;
-    return '$clean-$shortId';
+    return '$safeTitle-$shortId';
+  }
+
+  Future<String> _createUniqueSlug(String title, String userId) async {
+    final baseSlug = _slugify(title, userId);
+    final response = await supabase
+        .from('products')
+        .select('id, slug')
+        .like('slug', '$baseSlug%');
+
+    final usedSlugs = <String>{};
+    for (final rawItem in response as List) {
+      final item = Map<String, dynamic>.from(rawItem as Map);
+      final existingId = item['id']?.toString();
+      final currentId = _editingProduct?.id.toString();
+      if (currentId != null && existingId == currentId) continue;
+
+      final existingSlug = (item['slug'] ?? '').toString().trim();
+      if (existingSlug == baseSlug || existingSlug.startsWith('$baseSlug-')) {
+        usedSlugs.add(existingSlug);
+      }
+    }
+
+    if (!usedSlugs.contains(baseSlug)) return baseSlug;
+
+    var suffix = 2;
+    while (usedSlugs.contains('$baseSlug-$suffix')) {
+      suffix += 1;
+    }
+    return '$baseSlug-$suffix';
   }
 
   Widget _sectionLabel(String label) {

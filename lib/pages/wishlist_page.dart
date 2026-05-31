@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:my_ui_project/services/app_mode_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
@@ -17,6 +18,7 @@ class _WishlistPageState extends State<WishlistPage> {
   final supabase = Supabase.instance.client;
   final _wishlistService = WishlistService.instance;
   bool _isLoading = true;
+  bool _isSellerAccount = AppModeService.instance.isSeller;
   List<Product> _wishlistProducts = [];
 
   @override
@@ -25,12 +27,53 @@ class _WishlistPageState extends State<WishlistPage> {
     _loadWishlist();
   }
 
+  Future<bool> _isCurrentUserSeller(String userId) async {
+    try {
+      final profile = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .maybeSingle();
+      final role = (profile?['role'] ?? '').toString().trim().toLowerCase();
+      final isSeller = role == 'seller';
+      if (isSeller) {
+        AppModeService.instance.setMode(AppMode.seller);
+      } else if (role == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
+      return isSeller;
+    } catch (_) {
+      return AppModeService.instance.isSeller;
+    }
+  }
+
   Future<void> _loadWishlist() async {
     final user = supabase.auth.currentUser;
-    if (user == null) return;
+    if (user == null) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      return;
+    }
 
     setState(() => _isLoading = true);
     try {
+      if (await _isCurrentUserSeller(user.id)) {
+        if (!mounted) return;
+        setState(() {
+          _isSellerAccount = true;
+          _wishlistProducts = [];
+          _isLoading = false;
+        });
+        return;
+      }
+
+      if (mounted && _isSellerAccount) {
+        setState(() {
+          _isSellerAccount = false;
+        });
+      }
+
       final response = await supabase
           .from('wishlist')
           .select('product_id, products(*)')
@@ -39,7 +82,9 @@ class _WishlistPageState extends State<WishlistPage> {
       final List<Product> products = [];
       for (var item in (response as List)) {
         if (item['products'] != null) {
-          products.add(Product.fromMap(Map<String, dynamic>.from(item['products'])));
+          products.add(
+            Product.fromMap(Map<String, dynamic>.from(item['products'])),
+          );
         }
       }
 
@@ -52,9 +97,9 @@ class _WishlistPageState extends State<WishlistPage> {
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to load wishlist: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load wishlist: $e')));
       }
     }
   }
@@ -67,9 +112,9 @@ class _WishlistPageState extends State<WishlistPage> {
       });
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to remove: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to remove: $e')));
       }
     }
   }
@@ -99,9 +144,61 @@ class _WishlistPageState extends State<WishlistPage> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
+          : _isSellerAccount
+          ? _buildSellerBlockedState(secondaryText)
           : _wishlistProducts.isEmpty
-              ? _buildEmptyState(secondaryText)
-              : _buildProductList(textColor, secondaryText),
+          ? _buildEmptyState(secondaryText)
+          : _buildProductList(textColor, secondaryText),
+    );
+  }
+
+  Widget _buildSellerBlockedState(Color secondaryText) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.storefront_outlined,
+              size: 80,
+              color: secondaryText.withValues(alpha: 0.25),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Seller accounts cannot start shopping',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: secondaryText,
+              ),
+            ),
+            const SizedBox(height: 30),
+            ElevatedButton(
+              onPressed: () =>
+                  Navigator.pushReplacementNamed(context, '/seller_home'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: primaryRed,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 40,
+                  vertical: 15,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              child: Text(
+                'Open Seller Dashboard',
+                style: GoogleFonts.inter(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -127,7 +224,9 @@ class _WishlistPageState extends State<WishlistPage> {
           const SizedBox(height: 10),
           Text(
             'Save items you like for later!',
-            style: GoogleFonts.inter(color: secondaryText.withValues(alpha: 0.7)),
+            style: GoogleFonts.inter(
+              color: secondaryText.withValues(alpha: 0.7),
+            ),
           ),
           const SizedBox(height: 30),
           ElevatedButton(
@@ -216,7 +315,11 @@ class _WishlistPageState extends State<WishlistPage> {
                     onPressed: () => _removeFromWishlist(product.id),
                   ),
                   IconButton(
-                    icon: Icon(Icons.arrow_forward_ios, size: 16, color: secondaryText),
+                    icon: Icon(
+                      Icons.arrow_forward_ios,
+                      size: 16,
+                      color: secondaryText,
+                    ),
                     onPressed: () => Navigator.pushNamed(
                       context,
                       '/details',

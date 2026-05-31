@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:my_ui_project/services/chat_identity_cache.dart';
 import 'package:my_ui_project/services/wishlist_service.dart';
 import 'package:my_ui_project/services/app_scaffold_messenger.dart';
+import 'package:my_ui_project/services/app_mode_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:my_ui_project/theme/app_theme_colors.dart';
 import 'index_page.dart';
@@ -28,18 +29,33 @@ class _DetailsPageState extends State<DetailsPage> {
     _wishlistService.favoriteIds.addListener(_onWishlistChanged);
   }
 
-  Future<void> _loadUserRole() async {
-    final user = supabase.auth.currentUser;
-    if (user == null) return;
+  Future<String> _loadCurrentUserRole(String userId) async {
     try {
       final profile = await supabase
           .from('profiles')
           .select('role')
-          .eq('id', user.id)
+          .eq('id', userId)
           .maybeSingle();
-      if (profile != null && mounted) {
+      final role = (profile?['role'] ?? '').toString().trim().toLowerCase();
+      return role.isEmpty ? 'buyer' : role;
+    } catch (_) {
+      return AppModeService.instance.isSeller ? 'seller' : 'buyer';
+    }
+  }
+
+  Future<void> _loadUserRole() async {
+    final user = supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final role = await _loadCurrentUserRole(user.id);
+      if (role == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+      } else if (role == 'buyer') {
+        AppModeService.instance.setMode(AppMode.buyer);
+      }
+      if (mounted) {
         setState(() {
-          _userRole = (profile['role'] ?? 'buyer').toString();
+          _userRole = role;
         });
       }
     } catch (_) {}
@@ -53,6 +69,20 @@ class _DetailsPageState extends State<DetailsPage> {
     final product = _product;
     if (product == null) return;
     try {
+      final user = supabase.auth.currentUser;
+      if (user != null) {
+        final role = await _loadCurrentUserRole(user.id);
+        if (role == 'seller') {
+          if (!mounted) return;
+          setState(() => _userRole = role);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Seller accounts cannot save shopping items'),
+            ),
+          );
+          return;
+        }
+      }
       await _wishlistService.toggle(product.id);
     } catch (e) {
       if (mounted) {
@@ -118,6 +148,20 @@ class _DetailsPageState extends State<DetailsPage> {
       if (user == null) {
         messenger?.showSnackBar(
           const SnackBar(content: Text('Please login first')),
+        );
+        return;
+      }
+
+      final role = await _loadCurrentUserRole(user.id);
+      if (role == 'seller') {
+        AppModeService.instance.setMode(AppMode.seller);
+        if (mounted) {
+          setState(() => _userRole = role);
+        }
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text('Seller accounts cannot start shopping'),
+          ),
         );
         return;
       }
@@ -394,6 +438,8 @@ class _DetailsPageState extends State<DetailsPage> {
     final isSold = !product.isBuyable;
     final isOwnProduct = product.isOwnedBy(supabase.auth.currentUser?.id);
     final isAdmin = _userRole == 'admin';
+    final isSeller = _userRole == 'seller';
+    final canUseBuyerActions = !isAdmin && !isSeller;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -560,7 +606,7 @@ class _DetailsPageState extends State<DetailsPage> {
                               .toList(),
                         ),
                       ],
-                      if (!isAdmin) ...[
+                      if (canUseBuyerActions) ...[
                         const SizedBox(height: 24),
                         SizedBox(
                           width: double.infinity,
@@ -619,19 +665,20 @@ class _DetailsPageState extends State<DetailsPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 _circularAction(Icons.arrow_back, () => Navigator.pop(context)),
-                _circularAction(
-                  _wishlistService.isFavorite(product.id)
-                      ? Icons.favorite
-                      : Icons.favorite_border,
-                  _toggleWishlist,
-                  iconColor: _wishlistService.isFavorite(product.id)
-                      ? primaryRed
-                      : textColor,
-                ),
+                if (canUseBuyerActions)
+                  _circularAction(
+                    _wishlistService.isFavorite(product.id)
+                        ? Icons.favorite
+                        : Icons.favorite_border,
+                    _toggleWishlist,
+                    iconColor: _wishlistService.isFavorite(product.id)
+                        ? primaryRed
+                        : textColor,
+                  ),
               ],
             ),
           ),
-          if (!isAdmin)
+          if (canUseBuyerActions)
             Positioned(
               bottom: 30,
               left: 20,

@@ -27,7 +27,6 @@ class _ProfilePageState extends State<ProfilePage> {
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _avatarUrlController = TextEditingController();
 
-
   bool _isLoading = true;
   bool _isSaving = false;
   bool _obscurePassword = true;
@@ -156,29 +155,28 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       // Update email in auth only if it actually changed
       if (newEmail != currentEmail) {
-        await supabase.auth.updateUser(
-          UserAttributes(email: newEmail),
-        );
+        await supabase.auth.updateUser(UserAttributes(email: newEmail));
       }
 
       // Update password only if user typed one
       if (newPassword.isNotEmpty) {
-        await supabase.auth.updateUser(
-          UserAttributes(password: newPassword),
-        );
+        await supabase.auth.updateUser(UserAttributes(password: newPassword));
       }
 
       // Update profile table
-      await supabase.from('profiles').update({
-        'full_name': fullName,
-        'email': newEmail,
-        'role': updatedRole,
-        'shop_name': _shopNameController.text.trim(),
-        'bio': _bioController.text.trim(),
-        'location': _locationController.text.trim(),
-        'phone': _phoneController.text.trim(),
-        'avatar_url': _avatarUrlController.text.trim(),
-      }).eq('id', user.id);
+      await supabase
+          .from('profiles')
+          .update({
+            'full_name': fullName,
+            'email': newEmail,
+            'role': updatedRole,
+            'shop_name': _shopNameController.text.trim(),
+            'bio': _bioController.text.trim(),
+            'location': _locationController.text.trim(),
+            'phone': _phoneController.text.trim(),
+            'avatar_url': _avatarUrlController.text.trim(),
+          })
+          .eq('id', user.id);
 
       final displayName = _profileDisplayName(
         fullName: fullName,
@@ -226,7 +224,6 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-
   void _showEditDialog() {
     _passwordController.clear();
 
@@ -243,17 +240,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   children: [
                     TextField(
                       controller: _nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'Full Name',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Full Name'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
                       controller: _emailController,
                       keyboardType: TextInputType.emailAddress,
-                      decoration: const InputDecoration(
-                        labelText: 'Email',
-                      ),
+                      decoration: const InputDecoration(labelText: 'Email'),
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -354,9 +347,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   void _showMessage(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Widget _buildProfileMenu(
@@ -401,11 +394,14 @@ class _ProfilePageState extends State<ProfilePage> {
     final modeService = AppModeService.instance;
     final isSellerMode = modeService.isSeller;
     final isAdmin = _role == 'admin';
+    final isSellerAccount = isSellerMode || _role == 'seller';
     final textColor = AppThemeColors.textPrimary(context);
-    final displayedName =
-        _nameController.text.isEmpty ? 'User' : _nameController.text;
-    final displayedEmail =
-        _emailController.text.isEmpty ? 'No email' : _emailController.text;
+    final displayedName = _nameController.text.isEmpty
+        ? 'User'
+        : _nameController.text;
+    final displayedEmail = _emailController.text.isEmpty
+        ? 'No email'
+        : _emailController.text;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -492,7 +488,10 @@ class _ProfilePageState extends State<ProfilePage> {
                   // Account Type Indicator (Read-only, matches website)
                   Container(
                     margin: const EdgeInsets.only(bottom: 15),
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: Theme.of(context).cardColor,
                       borderRadius: BorderRadius.circular(15),
@@ -500,10 +499,10 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Row(
                       children: [
                         Icon(
-                          _role == 'admin' 
-                            ? Icons.admin_panel_settings_outlined 
-                            : _role == 'seller' 
-                              ? Icons.storefront_outlined 
+                          _role == 'admin'
+                              ? Icons.admin_panel_settings_outlined
+                              : _role == 'seller'
+                              ? Icons.storefront_outlined
                               : Icons.person_outline,
                           color: textColor,
                         ),
@@ -527,7 +526,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
 
-                  if (!isAdmin && (isSellerMode || _role == 'seller'))
+                  if (!isAdmin && isSellerAccount)
                     _buildProfileMenu(
                       context,
                       "Seller Dashboard",
@@ -548,14 +547,14 @@ class _ProfilePageState extends State<ProfilePage> {
                       Icons.add_business_outlined,
                       '/add_product',
                     ),
-                  if (!isAdmin)
+                  if (!isAdmin && !isSellerAccount)
                     _buildProfileMenu(
                       context,
                       "My Orders",
                       Icons.shopping_bag_outlined,
                       '/orders',
                     ),
-                  if (!isAdmin)
+                  if (!isAdmin && !isSellerAccount)
                     _buildProfileMenu(
                       context,
                       "My Wishlist",
